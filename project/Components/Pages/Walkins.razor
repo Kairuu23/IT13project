@@ -1,0 +1,752 @@
+﻿<Component1 /> 
+@using project.Models
+@using project.Data
+@using System.Diagnostics
+
+<div class="members-container">
+    <!-- Page Header - No gaps with sidebar and top -->
+    <div class="page-header">
+        <h1 class="page-title">Walk-in Customers</h1>
+        <div class="header-actions">
+            <input type="text"
+                   class="search-bar"
+                   placeholder="Search walk-ins..."
+                   @bind="searchQuery"
+                   @bind:event="oninput"
+                   @onkeyup="HandleSearch" />
+            <button class="add-member-btn" @onclick="OpenAddWalkinModal">+ Add Walk-in</button>
+        </div>
+    </div>
+
+    <!-- Walk-ins Data Table -->
+    <div class="table-container">
+        <table class="members-table">
+            <thead>
+                <tr>
+                    <th>WALK-IN ID</th>
+                    <th>FULL NAME</th>
+                    <th>VISIT DATE</th>
+                    <th>PAYMENT AMOUNT</th>
+                    <th>ACTIONS</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (filteredWalkins == null || !filteredWalkins.Any())
+                {
+                    <tr>
+                        <td colspan="5" class="no-data">
+                            <div class="no-data-content">
+                                <span class="no-data-icon">🚶‍♂️</span>
+                                <p>No walk-in customers found</p>
+                                <p class="no-data-sub">Add your first walk-in customer</p>
+                            </div>
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var walkin in filteredWalkins)
+                    {
+                        <tr>
+                            <td>@walkin.WalkinID</td>
+                            <td>
+                                <div class="member-info">
+                                    <div class="member-avatar">@walkin.FullName?.Substring(0, 1).ToUpper()</div>
+                                    <span>@walkin.FullName</span>
+                                </div>
+                            </td>
+                            <td>@walkin.VisitDate.ToString("MMM dd, yyyy hh:mm tt")</td>
+                            <td class="amount-cell">
+                                <span class="payment-amount">₱@walkin.PaymentAmount.ToString("N2")</span>
+                            </td>
+                            <td>
+                                <div class="action-buttons">
+                                    <button class="action-btn edit-btn" @onclick="() => EditWalkin(walkin)" title="Edit">
+                                        <img src="/edit_icon.svg" class="action-icon" alt="Edit" />
+                                    </button>
+                                    <button class="action-btn archive-btn" @onclick="() => ArchiveWalkin(walkin)" title="Archive">
+                                        <img src="/archived_icon.svg" class="action-icon" alt="Archive" />
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Add/Edit Walk-in Modal -->
+    @if (showWalkinModal)
+    {
+        <div class="modal-overlay" @onclick="CloseModal">
+            <div class="modal-content" @onclick:stopPropagation="true">
+                <div class="modal-header">
+                    <h2>@(isEditMode ? "Edit Walk-in" : "Add Walk-in Customer")</h2>
+                    <button class="close-btn" @onclick="CloseModal">×</button>
+                </div>
+
+                <div class="modal-body">
+                    <!-- Full Name -->
+                    <div class="form-group">
+                        <label class="required">Full Name</label>
+                        <input type="text"
+                               class="form-control @(validationErrors.ContainsKey("FullName") ? "error" : "")"
+                               @bind="currentWalkin.FullName"
+                               placeholder="Enter customer's full name" />
+                        @if (validationErrors.ContainsKey("FullName"))
+                        {
+                            <div class="error-message">@validationErrors["FullName"]</div>
+                        }
+                    </div>
+
+                    <!-- Visit Date -->
+                    <div class="form-group">
+                        <label class="required">Visit Date & Time</label>
+                        <input type="datetime-local"
+                               class="form-control @(validationErrors.ContainsKey("VisitDate") ? "error" : "")"
+                               @bind="currentWalkin.VisitDate"
+                               format="yyyy-MM-ddTHH:mm" />
+                        @if (validationErrors.ContainsKey("VisitDate"))
+                        {
+                            <div class="error-message">@validationErrors["VisitDate"]</div>
+                        }
+                    </div>
+
+                    <!-- Payment Amount -->
+                    <div class="form-group">
+                        <label class="required">Payment Amount (₱)</label>
+                        <input type="number"
+                               step="0.01"
+                               class="form-control @(validationErrors.ContainsKey("PaymentAmount") ? "error" : "")"
+                               @bind="currentWalkin.PaymentAmount"
+                               placeholder="Enter payment amount" />
+                        @if (validationErrors.ContainsKey("PaymentAmount"))
+                        {
+                            <div class="error-message">@validationErrors["PaymentAmount"]</div>
+                        }
+                    </div>
+
+                    
+
+                    <!-- General error message -->
+                    @if (validationErrors.ContainsKey("General"))
+                    {
+                        <div class="general-error-message">
+                            @validationErrors["General"]
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn btn-cancel" @onclick="CloseModal">Cancel</button>
+                    <button class="btn btn-save" @onclick="SaveWalkin">
+                        @(isEditMode ? "Update" : "Add") Walk-in
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .members-container {
+        padding: 0;
+        background: #f0f2f5;
+        min-height: 100vh;
+    }
+
+    /* Page Header - NO GAPS with sidebar and top */
+    .page-header {
+        background: white;
+        padding: 20px 30px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 0;
+        border-bottom: 1px solid #e0e0e0;
+        /* Remove all gaps */
+        margin-left: -30px;
+        margin-right: -30px;
+        margin-top: -30px;
+        width: calc(100% + 60px);
+    }
+
+    .page-title {
+        font-size: 24px;
+        font-weight: 600;
+        margin: 0;
+        color: #333;
+    }
+
+    .header-actions {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+    }
+
+    .search-bar {
+        padding: 10px 15px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        width: 250px;
+        font-size: 14px;
+        transition: all 0.3s;
+    }
+
+        .search-bar:focus {
+            outline: none;
+            border-color: #5cb85c;
+            box-shadow: 0 0 0 3px rgba(92, 184, 92, 0.1);
+        }
+
+    .add-member-btn {
+        background: #5cb85c;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+        .add-member-btn:hover {
+            background: #4cae4c;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(92, 184, 92, 0.3);
+        }
+
+    /* Table Container - NO GAPS with header and sidebar */
+    .table-container {
+        margin: 0;
+        background: white;
+        border-radius: 0;
+        box-shadow: none;
+        overflow: hidden;
+        /* Remove all gaps - extend to full width */
+        margin-left: -30px;
+        margin-right: -30px;
+        width: calc(100% + 60px);
+    }
+
+    .members-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+        .members-table thead {
+            background: #6b8299;
+            color: white;
+        }
+
+        .members-table th {
+            padding: 16px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid #5a7088;
+        }
+
+        .members-table td {
+            padding: 16px;
+            border-bottom: 1px solid #f0f0f0;
+            color: #333;
+        }
+
+        .members-table tbody tr {
+            transition: background 0.2s;
+        }
+
+            .members-table tbody tr:hover {
+                background: #f8f9fa;
+            }
+
+    .member-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .member-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #ff7e5f 0%, #feb47b 100%);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 14px;
+    }
+
+    /* Payment Amount Styling */
+    .amount-cell {
+        font-weight: 600;
+    }
+
+    .payment-amount {
+        color: #27ae60;
+        font-size: 15px;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: 8px;
+    }
+
+    .action-btn {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 8px;
+        border-radius: 6px;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+    }
+
+    .action-icon {
+        width: 18px;
+        height: 18px;
+        transition: all 0.2s;
+    }
+
+    .edit-btn {
+        background: #e3f2fd;
+        color: #3498db;
+    }
+
+        .edit-btn:hover {
+            background: #3498db;
+            transform: scale(1.1);
+        }
+
+            .edit-btn:hover .action-icon {
+                filter: brightness(0) invert(1);
+            }
+
+    .archive-btn {
+        background: #fff3e0;
+        color: #f39c12;
+    }
+
+        .archive-btn:hover {
+            background: #f39c12;
+            transform: scale(1.1);
+        }
+
+            .archive-btn:hover .action-icon {
+                filter: brightness(0) invert(1);
+            }
+
+    .no-data {
+        text-align: center;
+        padding: 60px 20px;
+    }
+
+    .no-data-content {
+        color: #999;
+    }
+
+    .no-data-icon {
+        font-size: 64px;
+        display: block;
+        margin-bottom: 16px;
+    }
+
+    .no-data-content p {
+        margin: 8px 0;
+        font-size: 16px;
+    }
+
+    .no-data-sub {
+        font-size: 14px;
+        color: #bbb;
+    }
+
+    /* Modal Styles */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 500px;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+
+    .modal-header {
+        padding: 20px 24px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 22px;
+            color: #333;
+        }
+
+    .close-btn {
+        background: transparent;
+        border: none;
+        font-size: 32px;
+        color: #999;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0;
+        width: 32px;
+        height: 32px;
+        transition: color 0.2s;
+    }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+    .modal-body {
+        padding: 24px;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+        position: relative;
+    }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }
+
+    .form-control {
+        width: 100%;
+        padding: 12px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        font-size: 15px;
+        transition: all 0.3s;
+    }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #5cb85c;
+            box-shadow: 0 0 0 3px rgba(92, 184, 92, 0.1);
+        }
+
+        /* Error state for form controls */
+        .form-control.error {
+            border-color: #e74c3c;
+            box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+        }
+
+            .form-control.error:focus {
+                border-color: #e74c3c;
+                box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+            }
+
+    /* Info Box */
+    .info-box {
+        background: #fff3e0;
+        border: 1px solid #ffcc80;
+        border-radius: 8px;
+        padding: 16px;
+        display: flex;
+        gap: 12px;
+        margin-top: 10px;
+    }
+
+    .info-icon {
+        font-size: 20px;
+        flex-shrink: 0;
+    }
+
+    .info-content {
+        flex: 1;
+    }
+
+        .info-content strong {
+            color: #e65100;
+            font-size: 14px;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .info-content p {
+            color: #424242;
+            font-size: 13px;
+            margin: 0;
+            line-height: 1.4;
+        }
+
+    /* Error message styles */
+    .error-message {
+        color: #e74c3c;
+        font-size: 12px;
+        margin-top: 4px;
+        font-weight: 500;
+        display: block;
+        height: 16px;
+        overflow: hidden;
+    }
+
+    .general-error-message {
+        background: #ffeaea;
+        color: #e74c3c;
+        padding: 12px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        border: 1px solid #ffcdd2;
+        margin-top: 10px;
+        text-align: center;
+    }
+
+    .modal-footer {
+        padding: 16px 24px;
+        border-top: 1px solid #eee;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+    .btn-cancel {
+        background: #f5f5f5;
+        color: #666;
+    }
+
+        .btn-cancel:hover {
+            background: #e0e0e0;
+        }
+
+    .btn-save {
+        background: #5cb85c;
+        color: white;
+    }
+
+        .btn-save:hover {
+            background: #4cae4c;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(92, 184, 92, 0.3);
+        }
+
+    .required::after {
+        content: " *";
+        color: #e74c3c;
+    }
+
+    /* Responsive design for smaller screens */
+    @@media (max-width: 768px) {
+        .action-buttons {
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .action-btn {
+            width: 32px;
+            height: 32px;
+        }
+
+        .action-icon {
+            width: 16px;
+            height: 16px;
+        }
+    }
+</style>
+
+@code {
+    private string searchQuery = "";
+    private bool showWalkinModal = false;
+    private bool isEditMode = false;
+    private Walkin currentWalkin = new Walkin();
+    private List<Walkin> walkins = new List<Walkin>();
+    private List<Walkin> filteredWalkins = new List<Walkin>();
+    private Dictionary<string, string> validationErrors = new Dictionary<string, string>();
+
+    protected override void OnInitialized()
+    {
+        LoadSampleData();
+        filteredWalkins = walkins;
+    }
+
+    private void LoadSampleData()
+    {
+        walkins = new List<Walkin>
+        {
+            new Walkin {
+                WalkinID = "WK001",
+                FullName = "Juan Dela Cruz",
+                VisitDate = DateTime.Now.AddDays(-2).AddHours(10),
+                PaymentAmount = 300.00m
+            },
+            new Walkin {
+                WalkinID = "WK002",
+                FullName = "Maria Santos",
+                VisitDate = DateTime.Now.AddDays(-1).AddHours(15),
+                PaymentAmount = 300.00m
+            },
+            new Walkin {
+                WalkinID = "WK003",
+                FullName = "Pedro Reyes",
+                VisitDate = DateTime.Now.AddHours(9),
+                PaymentAmount = 300.00m
+            }
+        };
+    }
+
+    private void HandleSearch()
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery))
+        {
+            filteredWalkins = walkins;
+        }
+        else
+        {
+            filteredWalkins = walkins.Where(w =>
+                w.WalkinID.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                w.FullName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+        }
+    }
+
+    private void OpenAddWalkinModal()
+    {
+        isEditMode = false;
+        currentWalkin = new Walkin
+        {
+            WalkinID = $"WK{(walkins.Count + 1):D3}",
+            VisitDate = DateTime.Now
+        };
+        validationErrors.Clear();
+        showWalkinModal = true;
+        StateHasChanged();
+    }
+
+    private void EditWalkin(Walkin walkin)
+    {
+        isEditMode = true;
+        currentWalkin = new Walkin
+        {
+            WalkinID = walkin.WalkinID,
+            FullName = walkin.FullName,
+            VisitDate = walkin.VisitDate,
+            PaymentAmount = walkin.PaymentAmount
+        };
+        validationErrors.Clear();
+        showWalkinModal = true;
+        StateHasChanged();
+    }
+
+    private void ArchiveWalkin(Walkin walkin)
+    {
+        // TODO: Add archive confirmation dialog or logic
+        walkins.Remove(walkin);
+        HandleSearch();
+        StateHasChanged();
+    }
+
+    private void ValidateWalkin()
+    {
+        validationErrors.Clear();
+
+        if (string.IsNullOrWhiteSpace(currentWalkin.FullName))
+        {
+            validationErrors["FullName"] = "Full name is required";
+        }
+
+        if (currentWalkin.PaymentAmount <= 0)
+        {
+            validationErrors["PaymentAmount"] = "Payment amount must be greater than 0";
+        }
+
+        if (currentWalkin.VisitDate > DateTime.Now)
+        {
+            validationErrors["VisitDate"] = "Visit date cannot be in the future";
+        }
+
+        if (validationErrors.Count > 0)
+        {
+            validationErrors["General"] = "Please fill in all required fields correctly";
+        }
+    }
+
+    private void SaveWalkin()
+    {
+        ValidateWalkin();
+
+        if (validationErrors.Count > 0)
+        {
+            StateHasChanged();
+            return;
+        }
+
+        if (isEditMode)
+        {
+            var existingWalkin = walkins.FirstOrDefault(w => w.WalkinID == currentWalkin.WalkinID);
+            if (existingWalkin != null)
+            {
+                existingWalkin.FullName = currentWalkin.FullName;
+                existingWalkin.VisitDate = currentWalkin.VisitDate;
+                existingWalkin.PaymentAmount = currentWalkin.PaymentAmount;
+            }
+        }
+        else
+        {
+            walkins.Add(currentWalkin);
+        }
+
+        HandleSearch();
+        CloseModal();
+    }
+
+    private void CloseModal()
+    {
+        showWalkinModal = false;
+        currentWalkin = new Walkin();
+        validationErrors.Clear();
+        StateHasChanged();
+    }
+
+    public class Walkin
+    {
+        public string WalkinID { get; set; } = "";
+        public string FullName { get; set; } = "";
+        public DateTime VisitDate { get; set; } = DateTime.Now;
+        public decimal PaymentAmount { get; set; }
+    }
+}

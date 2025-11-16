@@ -1,0 +1,904 @@
+﻿@page "/members"
+@layout MainLayout
+@using System.Diagnostics
+
+<div class="members-container">
+    <!-- Page Header - No gaps with sidebar and top -->
+    <div class="page-header">
+        <h1 class="page-title">Manage Members</h1>
+        <div class="header-actions">
+            <input type="text"
+                   class="search-bar"
+                   placeholder="Search..."
+                   @bind="searchQuery"
+                   @bind:event="oninput"
+                   @onkeyup="HandleSearch" />
+            <button class="add-member-btn" @onclick="OpenAddMemberModal">+ Add New Member</button>
+        </div>
+    </div>
+
+    <!-- Members Data Table -->
+    <div class="table-container">
+        <table class="members-table">
+            <thead>
+                <tr>
+                    <th>MEMBER ID</th>
+                    <th>NAME</th>
+                    <th>CONTACT NUMBER</th>
+                    <th>EMAIL</th>
+                    <th>ADDRESS</th>
+                    <th>JOIN DATE</th>
+                    <th>STATUS</th>
+                    <th>ACTIONS</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (filteredMembers == null || !filteredMembers.Any())
+                {
+                    <tr>
+                        <td colspan="8" class="no-data">
+                            <div class="no-data-content">
+                                <span class="no-data-icon">👥</span>
+                                <p>No members found</p>
+                                <p class="no-data-sub">Add your first member to get started</p>
+                            </div>
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var member in filteredMembers)
+                    {
+                        <tr>
+                            <td>@member.MemberId</td>
+                            <td>
+                                <div class="member-info">
+                                    <div class="member-avatar">@member.FullName.Substring(0, 1).ToUpper()</div>
+                                    <span>@member.FullName</span>
+                                </div>
+                            </td>
+                            <td>@member.ContactNumber</td>
+                            <td>@member.Email</td>
+                            <td class="address-cell">@member.Address</td>
+                            <td>@member.JoinDate.ToString("MM/dd/yyyy")</td>
+                            <td>
+                                <span class="status-badge @(member.IsActive ? "status-active" : "status-inactive")">
+                                    @(member.IsActive ? "Active" : "Inactive")
+                                </span>
+                            </td>
+                            <td>
+                                <div class="action-buttons">
+                                    <button class="action-btn edit-btn" @onclick="() => EditMember(member)" title="Edit">
+                                        <img src="/edit_icon.svg" class="action-icon" alt="Edit" />
+                                    </button>
+                                    <button class="action-btn archive-btn" @onclick="() => ArchiveMember(member)" title="Archive">
+                                        <img src="/archived_icon.svg" class="action-icon" alt="Archive" />
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Add/Edit Member Modal -->
+    @if (showModal)
+    {
+        <div class="modal-overlay" @onclick="CloseModal">
+            <div class="modal-content" @onclick:stopPropagation="true">
+                <div class="modal-header">
+                    <h2>@(isEditMode ? "Edit Member" : "Add New Member")</h2>
+                    <button class="close-btn" @onclick="CloseModal">×</button>
+                </div>
+
+                <div class="modal-body">
+                    <!-- Validation Error Message -->
+                    @if (showValidationError)
+                    {
+                        <div class="validation-error">
+                            ⚠️ Please fill in all required fields marked with *
+                        </div>
+                    }
+
+                    <!-- Name Fields -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="required">First Name</label>
+                            <input type="text" class="form-control @(HasError("FirstName") ? "error" : "")" @bind="currentMember.FirstName" placeholder="Enter first name" />
+                            @if (HasError("FirstName"))
+                            {
+                                <div class="field-error">First name is required</div>
+                            }
+                        </div>
+                        <div class="form-group">
+                            <label>Middle Name</label>
+                            <input type="text" class="form-control" @bind="currentMember.MiddleName" placeholder="Enter middle name" />
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="required">Last Name</label>
+                        <input type="text" class="form-control @(HasError("LastName") ? "error" : "")" @bind="currentMember.LastName" placeholder="Enter last name" />
+                        @if (HasError("LastName"))
+                        {
+                            <div class="field-error">Last name is required</div>
+                        }
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <!-- Contact Information -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="required">Contact Number</label>
+                            <input type="tel" class="form-control @(HasError("ContactNumber") ? "error" : "")" @bind="currentMember.ContactNumber" placeholder="Enter contact number" />
+                            @if (HasError("ContactNumber"))
+                            {
+                                <div class="field-error">Contact number is required</div>
+                            }
+                        </div>
+                        <div class="form-group">
+                            <label class="required">Email</label>
+                            <input type="email" class="form-control @(HasError("Email") ? "error" : "")" @bind="currentMember.Email" placeholder="Enter email address" />
+                            @if (HasError("Email"))
+                            {
+                                <div class="field-error">Email is required</div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="required">Address</label>
+                        <textarea class="form-control address-textarea @(HasError("Address") ? "error" : "")" @bind="currentMember.Address" placeholder="Enter full address" rows="3"></textarea>
+                        @if (HasError("Address"))
+                        {
+                            <div class="field-error">Address is required</div>
+                        }
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <!-- Membership Details -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="required">Join Date</label>
+                            <input type="date" class="form-control @(HasError("JoinDate") ? "error" : "")" @bind="currentMember.JoinDate" format="yyyy-MM-dd" />
+                            @if (HasError("JoinDate"))
+                            {
+                                <div class="field-error">Join date is required</div>
+                            }
+                        </div>
+                        <div class="form-group">
+                            <label class="required">Status</label>
+                            <div class="select-wrapper">
+                                <select class="form-control select-dropdown" @bind="statusString">
+                                    <option value="true">Active</option>
+                                    <option value="false">Inactive</option>
+                                </select>
+                                <span class="dropdown-arrow">▼</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn btn-cancel" @onclick="CloseModal">Cancel</button>
+                    <button class="btn btn-save" @onclick="SaveMember">
+                        @(isEditMode ? "Update" : "Add") Member
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .members-container {
+        padding: 0;
+        background: #f0f2f5;
+        min-height: 100vh;
+    }
+
+    /* Page Header - NO GAPS with sidebar and top */
+    .page-header {
+        background: white;
+        padding: 20px 30px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 0;
+        border-bottom: 1px solid #e0e0e0;
+        /* Remove all gaps */
+        margin-left: -30px;
+        margin-right: -30px;
+        margin-top: -30px;
+        width: calc(100% + 60px);
+    }
+
+    .page-title {
+        font-size: 24px;
+        font-weight: 600;
+        margin: 0;
+        color: #333;
+    }
+
+    .header-actions {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+    }
+
+    .search-bar {
+        padding: 10px 15px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        width: 250px;
+        font-size: 14px;
+        transition: all 0.3s;
+    }
+
+        .search-bar:focus {
+            outline: none;
+            border-color: #5cb85c;
+            box-shadow: 0 0 0 3px rgba(92, 184, 92, 0.1);
+        }
+
+    .add-member-btn {
+        background: #5cb85c;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+        .add-member-btn:hover {
+            background: #4cae4c;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(92, 184, 92, 0.3);
+        }
+
+    /* Table Container - NO GAPS with header and sidebar */
+    .table-container {
+        margin: 0;
+        background: white;
+        border-radius: 0;
+        box-shadow: none;
+        overflow: hidden;
+        /* Remove all gaps - extend to full width */
+        margin-left: -30px;
+        margin-right: -30px;
+        width: calc(100% + 60px);
+    }
+
+    .members-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+        .members-table thead {
+            background: #6b8299;
+            color: white;
+        }
+
+        .members-table th {
+            padding: 16px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid #5a7088;
+        }
+
+        .members-table td {
+            padding: 16px;
+            border-bottom: 1px solid #f0f0f0;
+            color: #333;
+        }
+
+        .members-table tbody tr {
+            transition: background 0.2s;
+        }
+
+            .members-table tbody tr:hover {
+                background: #f8f9fa;
+            }
+
+    .member-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .member-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 14px;
+    }
+
+    .address-cell {
+        max-width: 200px;
+        word-wrap: break-word;
+    }
+
+    .status-badge {
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .status-active {
+        background: #d4edda;
+        color: #155724;
+    }
+
+    .status-inactive {
+        background: #f8d7da;
+        color: #721c24;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: 8px;
+    }
+
+    .action-btn {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 8px;
+        border-radius: 6px;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+    }
+
+    .action-icon {
+        width: 18px;
+        height: 18px;
+        transition: all 0.2s;
+    }
+
+    .edit-btn {
+        background: #e3f2fd;
+        color: #3498db;
+    }
+
+        .edit-btn:hover {
+            background: #3498db;
+            transform: scale(1.1);
+        }
+
+            .edit-btn:hover .action-icon {
+                filter: brightness(0) invert(1);
+            }
+
+    .archive-btn {
+        background: #fff3e0;
+        color: #f39c12;
+    }
+
+        .archive-btn:hover {
+            background: #f39c12;
+            transform: scale(1.1);
+        }
+
+            .archive-btn:hover .action-icon {
+                filter: brightness(0) invert(1);
+            }
+
+    .no-data {
+        text-align: center;
+        padding: 60px 20px;
+    }
+
+    .no-data-content {
+        color: #999;
+    }
+
+    .no-data-icon {
+        font-size: 64px;
+        display: block;
+        margin-bottom: 16px;
+    }
+
+    .no-data-content p {
+        margin: 8px 0;
+        font-size: 16px;
+    }
+
+    .no-data-sub {
+        font-size: 14px;
+        color: #bbb;
+    }
+
+    /* Modal Styles - FIXED FOR SCROLLING */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+        padding: 20px;
+        box-sizing: border-box;
+    }
+
+    .modal-content {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 600px;
+        max-height: 90vh; /* Prevent modal from exceeding viewport height */
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden; /* Prevent content from overflowing */
+    }
+
+    .modal-header {
+        padding: 20px 24px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-shrink: 0; /* Prevent header from shrinking */
+    }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 22px;
+            color: #333;
+        }
+
+    .close-btn {
+        background: transparent;
+        border: none;
+        font-size: 32px;
+        color: #999;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0;
+        width: 32px;
+        height: 32px;
+        transition: color 0.2s;
+    }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+    .modal-body {
+        padding: 24px;
+        overflow-y: auto; /* Enable scrolling for modal body */
+        flex: 1; /* Take remaining space */
+        max-height: calc(90vh - 140px); /* Account for header and footer */
+    }
+
+    /* Validation Styles */
+    .validation-error {
+        background: #ffeaa7;
+        border: 1px solid #fdcb6e;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 20px;
+        color: #e17055;
+        font-weight: 600;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0; /* Prevent error message from affecting layout */
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }
+
+    .form-control {
+        width: 100%;
+        padding: 12px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        font-size: 15px;
+        transition: all 0.3s;
+        box-sizing: border-box; /* Include padding in width calculation */
+    }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #5cb85c;
+            box-shadow: 0 0 0 3px rgba(92, 184, 92, 0.1);
+        }
+
+        /* Error state for form controls */
+        .form-control.error {
+            border-color: #e74c3c;
+            box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+        }
+
+            .form-control.error:focus {
+                border-color: #e74c3c;
+                box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.2);
+            }
+
+    .field-error {
+        color: #e74c3c;
+        font-size: 12px;
+        margin-top: 5px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+        .field-error::before {
+            content: "⚠";
+            font-size: 10px;
+        }
+
+    .address-textarea {
+        resize: vertical;
+        min-height: 80px;
+        font-family: inherit;
+    }
+
+    /* Enhanced Dropdown Styles */
+    .select-wrapper {
+        position: relative;
+        display: inline-block;
+        width: 100%;
+    }
+
+    .select-dropdown {
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        padding-right: 40px;
+        background: white;
+        cursor: pointer;
+        width: 100%;
+        padding: 12px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        font-size: 15px;
+        transition: all 0.3s;
+        box-sizing: border-box;
+    }
+
+    .dropdown-arrow {
+        position: absolute;
+        right: 15px;
+        top: 50%;
+        transform: translateY(-50%);
+        pointer-events: none;
+        color: #666;
+        font-size: 12px;
+        transition: all 0.2s;
+    }
+
+    .select-dropdown:focus + .dropdown-arrow {
+        color: #5cb85c;
+        transform: translateY(-50%) rotate(180deg);
+    }
+
+    .select-dropdown:hover {
+        border-color: #5cb85c;
+    }
+
+    .select-dropdown:focus {
+        outline: none;
+        border-color: #5cb85c;
+        box-shadow: 0 0 0 3px rgba(92, 184, 92, 0.1);
+    }
+
+    .modal-footer {
+        padding: 16px 24px;
+        border-top: 1px solid #eee;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        flex-shrink: 0; /* Prevent footer from shrinking */
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+    .btn-cancel {
+        background: #f5f5f5;
+        color: #666;
+    }
+
+        .btn-cancel:hover {
+            background: #e0e0e0;
+        }
+
+    .btn-save {
+        background: #5cb85c;
+        color: white;
+    }
+
+        .btn-save:hover {
+            background: #4cae4c;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(92, 184, 92, 0.3);
+        }
+
+    /* Additional CSS for the form layout */
+    .form-row {
+        display: flex;
+        gap: 15px;
+    }
+
+        .form-row .form-group {
+            flex: 1;
+        }
+
+    .required::after {
+        content: " *";
+        color: #e74c3c;
+    }
+
+    .divider {
+        height: 1px;
+        background-color: #eee;
+        margin: 20px 0;
+        border: none;
+    }
+
+    /* Responsive design for smaller screens */
+    @@media (max-height: 700px) {
+        .modal-content {
+            max-height: 95vh;
+        }
+
+        .modal-body {
+            max-height: calc(95vh - 140px);
+        }
+    }
+
+    @@media (max-width: 768px) {
+        .modal-overlay {
+            padding: 10px;
+        }
+
+        .modal-content {
+            width: 95%;
+            max-height: 95vh;
+        }
+
+        .form-row {
+            flex-direction: column;
+            gap: 0;
+        }
+
+        .action-buttons {
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .action-btn {
+            width: 32px;
+            height: 32px;
+        }
+
+        .action-icon {
+            width: 16px;
+            height: 16px;
+        }
+    }
+</style>
+
+@code {
+    private string searchQuery = "";
+    private bool showModal = false;
+    private bool isEditMode = false;
+    private bool showValidationError = false;
+    private string statusString = "true";
+    private Member currentMember = new Member();
+    private List<Member> members = new List<Member>();
+    private List<Member> filteredMembers = new List<Member>();
+    private List<string> validationErrors = new List<string>();
+
+    protected override void OnInitialized()
+    {
+        filteredMembers = members;
+    }
+
+    
+
+    private void HandleSearch()
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery))
+        {
+            filteredMembers = members;
+        }
+        else
+        {
+            filteredMembers = members.Where(m =>
+                m.FullName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                m.Email.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                m.ContactNumber.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                m.MemberId.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                m.Address.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+        }
+    }
+
+    private void OpenAddMemberModal()
+    {
+        isEditMode = false;
+        currentMember = new Member
+        {
+            MemberId = $"M{(members.Count + 1):D3}",
+            JoinDate = DateTime.Now,
+            IsActive = true
+        };
+        statusString = "true";
+        showValidationError = false;
+        validationErrors.Clear();
+        showModal = true;
+        StateHasChanged();
+    }
+
+    private void EditMember(Member member)
+    {
+        isEditMode = true;
+        currentMember = new Member
+        {
+            MemberId = member.MemberId,
+            FirstName = member.FirstName,
+            MiddleName = member.MiddleName,
+            LastName = member.LastName,
+            FullName = member.FullName,
+            ContactNumber = member.ContactNumber,
+            Email = member.Email,
+            Address = member.Address,
+            JoinDate = member.JoinDate,
+            IsActive = member.IsActive
+        };
+        statusString = member.IsActive.ToString().ToLower();
+        showValidationError = false;
+        validationErrors.Clear();
+        showModal = true;
+        StateHasChanged();
+    }
+
+    private void ArchiveMember(Member member)
+    {
+        // TODO: Add archive confirmation dialog
+        members.Remove(member);
+        HandleSearch();
+        StateHasChanged();
+    }
+
+    private bool ValidateForm()
+    {
+        validationErrors.Clear();
+
+        if (string.IsNullOrWhiteSpace(currentMember.FirstName))
+            validationErrors.Add("FirstName");
+
+        if (string.IsNullOrWhiteSpace(currentMember.LastName))
+            validationErrors.Add("LastName");
+
+        if (string.IsNullOrWhiteSpace(currentMember.ContactNumber))
+            validationErrors.Add("ContactNumber");
+
+        if (string.IsNullOrWhiteSpace(currentMember.Email))
+            validationErrors.Add("Email");
+
+        if (string.IsNullOrWhiteSpace(currentMember.Address))
+            validationErrors.Add("Address");
+
+        if (currentMember.JoinDate == DateTime.MinValue)
+            validationErrors.Add("JoinDate");
+
+        showValidationError = validationErrors.Any();
+        return !showValidationError;
+    }
+
+    private bool HasError(string fieldName)
+    {
+        return validationErrors.Contains(fieldName);
+    }
+
+    private void SaveMember()
+    {
+        if (!ValidateForm())
+        {
+            StateHasChanged();
+            return;
+        }
+
+        // Convert string status to boolean
+        currentMember.IsActive = bool.Parse(statusString);
+
+        // Build FullName from individual name parts
+        currentMember.FullName = $"{currentMember.FirstName} {currentMember.MiddleName} {currentMember.LastName}".Trim();
+
+        if (isEditMode)
+        {
+            var existingMember = members.FirstOrDefault(m => m.MemberId == currentMember.MemberId);
+            if (existingMember != null)
+            {
+                existingMember.FirstName = currentMember.FirstName;
+                existingMember.MiddleName = currentMember.MiddleName;
+                existingMember.LastName = currentMember.LastName;
+                existingMember.FullName = currentMember.FullName;
+                existingMember.ContactNumber = currentMember.ContactNumber;
+                existingMember.Email = currentMember.Email;
+                existingMember.Address = currentMember.Address;
+                existingMember.JoinDate = currentMember.JoinDate;
+                existingMember.IsActive = currentMember.IsActive;
+            }
+        }
+        else
+        {
+            members.Add(currentMember);
+        }
+
+        HandleSearch();
+        CloseModal();
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        currentMember = new Member();
+        statusString = "true";
+        showValidationError = false;
+        validationErrors.Clear();
+        StateHasChanged();
+    }
+
+    public class Member
+    {
+        public string MemberId { get; set; } = "";
+        public string FirstName { get; set; } = "";
+        public string MiddleName { get; set; } = "";
+        public string LastName { get; set; } = "";
+        public string FullName { get; set; } = "";
+        public string ContactNumber { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Address { get; set; } = "";
+        public DateTime JoinDate { get; set; } = DateTime.Now;
+        public bool IsActive { get; set; } = true;
+    }
+}

@@ -1,0 +1,877 @@
+﻿@page "/promotions"
+@layout MainLayout
+
+@using System.Diagnostics
+
+<div class="members-container">
+    <!-- Page Header - No gaps with sidebar and top -->
+    <div class="page-header">
+        <h1 class="page-title">Promotions Management</h1>
+        <div class="header-actions">
+            <input type="text"
+                   class="search-bar"
+                   placeholder="Search promotions..."
+                   @bind="searchQuery"
+                   @bind:event="oninput"
+                   @onkeyup="HandleSearch" />
+            <button class="add-member-btn" @onclick="OpenAddPromoModal">+ Create Promotion</button>
+        </div>
+    </div>
+
+    <!-- Promotions Data Table -->
+    <div class="table-container">
+        <table class="members-table">
+            <thead>
+                <tr>
+                    <th>PROMO ID</th>
+                    <th>PROMO NAME</th>
+                    <th>DESCRIPTION</th>
+                    <th>DISCOUNT RATE</th>
+                    <th>START DATE</th>
+                    <th>END DATE</th>
+                    <th>STATUS</th>
+                    <th>ACTIONS</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (filteredPromotions == null || !filteredPromotions.Any())
+                {
+                    <tr>
+                        <td colspan="8" class="no-data">
+                            <div class="no-data-content">
+                                <span class="no-data-icon">🎯</span>
+                                <p>No promotions found</p>
+                                <p class="no-data-sub">Create your first promotion to get started</p>
+                            </div>
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var promo in filteredPromotions)
+                    {
+                        <tr>
+                            <td>@promo.PromoID</td>
+                            <td>
+                                <div class="promo-name">@promo.PromoName</div>
+                            </td>
+                            <td>
+                                <div class="promo-description">@promo.Description</div>
+                            </td>
+                            <td class="discount-cell">
+                                <span class="discount-rate">@promo.DiscountRate.ToString("P0")</span>
+                            </td>
+                            <td>@promo.StartDate.ToString("MMM dd, yyyy")</td>
+                            <td>@promo.EndDate.ToString("MMM dd, yyyy")</td>
+                            <td>
+                                <span class="status-badge @GetStatusClass(promo)">
+                                    @GetStatusText(promo)
+                                </span>
+                            </td>
+                            <td>
+                                <div class="action-buttons">
+                                    <button class="action-btn edit-btn" @onclick="() => EditPromotion(promo)" title="Edit">
+                                        <img src="/edit_icon.svg" class="action-icon" alt="Edit" />
+                                    </button>
+                                    <button class="action-btn archive-btn" @onclick="() => ArchivePromotion(promo)" title="Archive">
+                                        <img src="/archived_icon.svg" class="action-icon" alt="Archive" />
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Add/Edit Promotion Modal -->
+    @if (showPromoModal)
+    {
+        <div class="modal-overlay" @onclick="CloseModal">
+            <div class="modal-content" @onclick:stopPropagation="true">
+                <div class="modal-header">
+                    <h2>@(isEditMode ? "Edit Promotion" : "Create New Promotion")</h2>
+                    <button class="close-btn" @onclick="CloseModal">×</button>
+                </div>
+
+                <div class="modal-body">
+                    <!-- Promo Name -->
+                    <div class="form-group">
+                        <label class="required">Promotion Name</label>
+                        <input type="text"
+                               class="form-control @(validationErrors.ContainsKey("PromoName") ? "error" : "")"
+                               @bind="currentPromo.PromoName"
+                               placeholder="Enter promotion name" />
+                        @if (validationErrors.ContainsKey("PromoName"))
+                        {
+                            <div class="error-message">@validationErrors["PromoName"]</div>
+                        }
+                    </div>
+
+                    <!-- Description -->
+                    <div class="form-group">
+                        <label class="required">Description</label>
+                        <textarea class="form-control @(validationErrors.ContainsKey("Description") ? "error" : "")"
+                                  @bind="currentPromo.Description"
+                                  placeholder="Enter promotion description"
+                                  rows="3"></textarea>
+                        @if (validationErrors.ContainsKey("Description"))
+                        {
+                            <div class="error-message">@validationErrors["Description"]</div>
+                        }
+                    </div>
+
+                    <!-- Discount Rate -->
+                    <div class="form-group">
+                        <label class="required">Discount Rate (%)</label>
+                        <input type="number"
+                               step="1"
+                               min="1"
+                               max="100"
+                               class="form-control @(validationErrors.ContainsKey("DiscountRate") ? "error" : "")"
+                               @bind="currentPromo.DiscountRate"
+                               placeholder="Enter discount percentage" />
+                        @if (validationErrors.ContainsKey("DiscountRate"))
+                        {
+                            <div class="error-message">@validationErrors["DiscountRate"]</div>
+                        }
+                    </div>
+
+                    <!-- Date Range -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="required">Start Date</label>
+                            <input type="date"
+                                   class="form-control @(validationErrors.ContainsKey("StartDate") ? "error" : "")"
+                                   @bind="currentPromo.StartDate"
+                                   format="yyyy-MM-dd" />
+                            @if (validationErrors.ContainsKey("StartDate"))
+                            {
+                                <div class="error-message">@validationErrors["StartDate"]</div>
+                            }
+                        </div>
+                        <div class="form-group">
+                            <label class="required">End Date</label>
+                            <input type="date"
+                                   class="form-control @(validationErrors.ContainsKey("EndDate") ? "error" : "")"
+                                   @bind="currentPromo.EndDate"
+                                   format="yyyy-MM-dd" />
+                            @if (validationErrors.ContainsKey("EndDate"))
+                            {
+                                <div class="error-message">@validationErrors["EndDate"]</div>
+                            }
+                        </div>
+                    </div>
+
+                 
+
+                    <!-- General error message -->
+                    @if (validationErrors.ContainsKey("General"))
+                    {
+                        <div class="general-error-message">
+                            @validationErrors["General"]
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn btn-cancel" @onclick="CloseModal">Cancel</button>
+                    <button class="btn btn-save" @onclick="SavePromotion">
+                        @(isEditMode ? "Update" : "Create") Promotion
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .members-container {
+        padding: 0;
+        background: #f0f2f5;
+        min-height: 100vh;
+    }
+
+    /* Page Header - NO GAPS with sidebar and top */
+    .page-header {
+        background: white;
+        padding: 20px 30px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 0;
+        border-bottom: 1px solid #e0e0e0;
+        /* Remove all gaps */
+        margin-left: -30px;
+        margin-right: -30px;
+        margin-top: -30px;
+        width: calc(100% + 60px);
+    }
+
+    .page-title {
+        font-size: 24px;
+        font-weight: 600;
+        margin: 0;
+        color: #333;
+    }
+
+    .header-actions {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+    }
+
+    .search-bar {
+        padding: 10px 15px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        width: 250px;
+        font-size: 14px;
+        transition: all 0.3s;
+    }
+
+        .search-bar:focus {
+            outline: none;
+            border-color: #5cb85c;
+            box-shadow: 0 0 0 3px rgba(92, 184, 92, 0.1);
+        }
+
+    .add-member-btn {
+        background: #5cb85c;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+        .add-member-btn:hover {
+            background: #4cae4c;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(92, 184, 92, 0.3);
+        }
+
+    /* Table Container - NO GAPS with header and sidebar */
+    .table-container {
+        margin: 0;
+        background: white;
+        border-radius: 0;
+        box-shadow: none;
+        overflow: hidden;
+        /* Remove all gaps - extend to full width */
+        margin-left: -30px;
+        margin-right: -30px;
+        width: calc(100% + 60px);
+    }
+
+    .members-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+        .members-table thead {
+            background: #6b8299;
+            color: white;
+        }
+
+        .members-table th {
+            padding: 16px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid #5a7088;
+        }
+
+        .members-table td {
+            padding: 16px;
+            border-bottom: 1px solid #f0f0f0;
+            color: #333;
+        }
+
+        .members-table tbody tr {
+            transition: background 0.2s;
+        }
+
+            .members-table tbody tr:hover {
+                background: #f8f9fa;
+            }
+
+    .promo-name {
+        font-weight: 600;
+        color: #333;
+        font-size: 14px;
+    }
+
+    .promo-description {
+        color: #666;
+        font-size: 13px;
+        line-height: 1.4;
+        max-width: 200px;
+    }
+
+    /* Discount Rate Styling */
+    .discount-cell {
+        font-weight: 600;
+    }
+
+    .discount-rate {
+        color: #e74c3c;
+        font-size: 14px;
+        background: #ffeaea;
+        padding: 4px 8px;
+        border-radius: 12px;
+        border: 1px solid #ffcdd2;
+    }
+
+    /* Status Badges */
+    .status-badge {
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .status-active {
+        background: #e8f5e8;
+        color: #2e7d32;
+    }
+
+    .status-upcoming {
+        background: #e3f2fd;
+        color: #1976d2;
+    }
+
+    .status-expired {
+        background: #f5f5f5;
+        color: #757575;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: 8px;
+    }
+
+    .action-btn {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 8px;
+        border-radius: 6px;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+    }
+
+    .action-icon {
+        width: 18px;
+        height: 18px;
+        transition: all 0.2s;
+    }
+
+    .edit-btn {
+        background: #e3f2fd;
+        color: #3498db;
+    }
+
+        .edit-btn:hover {
+            background: #3498db;
+            transform: scale(1.1);
+        }
+
+            .edit-btn:hover .action-icon {
+                filter: brightness(0) invert(1);
+            }
+
+    .archive-btn {
+        background: #fff3e0;
+        color: #f39c12;
+    }
+
+        .archive-btn:hover {
+            background: #f39c12;
+            transform: scale(1.1);
+        }
+
+            .archive-btn:hover .action-icon {
+                filter: brightness(0) invert(1);
+            }
+
+    .no-data {
+        text-align: center;
+        padding: 60px 20px;
+    }
+
+    .no-data-content {
+        color: #999;
+    }
+
+    .no-data-icon {
+        font-size: 64px;
+        display: block;
+        margin-bottom: 16px;
+    }
+
+    .no-data-content p {
+        margin: 8px 0;
+        font-size: 16px;
+    }
+
+    .no-data-sub {
+        font-size: 14px;
+        color: #bbb;
+    }
+
+    /* Modal Styles */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 550px;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    }
+
+    .modal-header {
+        padding: 20px 24px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 22px;
+            color: #333;
+        }
+
+    .close-btn {
+        background: transparent;
+        border: none;
+        font-size: 32px;
+        color: #999;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0;
+        width: 32px;
+        height: 32px;
+        transition: color 0.2s;
+    }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+    .modal-body {
+        padding: 24px;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+        position: relative;
+    }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }
+
+    .form-control {
+        width: 100%;
+        padding: 12px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        font-size: 15px;
+        transition: all 0.3s;
+    }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #5cb85c;
+            box-shadow: 0 0 0 3px rgba(92, 184, 92, 0.1);
+        }
+
+        /* Error state for form controls */
+        .form-control.error {
+            border-color: #e74c3c;
+            box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+        }
+
+            .form-control.error:focus {
+                border-color: #e74c3c;
+                box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+            }
+
+    /* Info Box */
+    .info-box {
+        background: #e3f2fd;
+        border: 1px solid #bbdefb;
+        border-radius: 8px;
+        padding: 16px;
+        display: flex;
+        gap: 12px;
+        margin-top: 10px;
+    }
+
+    .info-icon {
+        font-size: 20px;
+        flex-shrink: 0;
+    }
+
+    .info-content {
+        flex: 1;
+    }
+
+        .info-content strong {
+            color: #1976d2;
+            font-size: 14px;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .info-content p {
+            color: #424242;
+            font-size: 13px;
+            margin: 0;
+            line-height: 1.4;
+        }
+
+    /* Error message styles */
+    .error-message {
+        color: #e74c3c;
+        font-size: 12px;
+        margin-top: 4px;
+        font-weight: 500;
+        display: block;
+        height: 16px;
+        overflow: hidden;
+    }
+
+    .general-error-message {
+        background: #ffeaea;
+        color: #e74c3c;
+        padding: 12px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        border: 1px solid #ffcdd2;
+        margin-top: 10px;
+        text-align: center;
+    }
+
+    .modal-footer {
+        padding: 16px 24px;
+        border-top: 1px solid #eee;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+    .btn-cancel {
+        background: #f5f5f5;
+        color: #666;
+    }
+
+        .btn-cancel:hover {
+            background: #e0e0e0;
+        }
+
+    .btn-save {
+        background: #5cb85c;
+        color: white;
+    }
+
+        .btn-save:hover {
+            background: #4cae4c;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(92, 184, 92, 0.3);
+        }
+
+    /* Additional CSS for the modified modal */
+    .form-row {
+        display: flex;
+        gap: 15px;
+    }
+
+        .form-row .form-group {
+            flex: 1;
+        }
+
+    .required::after {
+        content: " *";
+        color: #e74c3c;
+    }
+
+    /* Responsive design for smaller screens */
+    @@media (max-width: 768px) {
+        .action-buttons {
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .action-btn {
+            width: 32px;
+            height: 32px;
+        }
+
+        .action-icon {
+            width: 16px;
+            height: 16px;
+        }
+
+        .header-actions {
+            flex-direction: column;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .search-bar {
+            width: 100%;
+        }
+    }
+</style>
+
+@code {
+    private string searchQuery = "";
+    private bool showPromoModal = false;
+    private bool isEditMode = false;
+    private Promotion currentPromo = new Promotion();
+    private List<Promotion> promotions = new List<Promotion>();
+    private List<Promotion> filteredPromotions = new List<Promotion>();
+    private Dictionary<string, string> validationErrors = new Dictionary<string, string>();
+
+    protected override void OnInitialized()
+    {
+        LoadSampleData();
+        filteredPromotions = promotions;
+    }
+
+    private void LoadSampleData()
+    {
+        promotions = new List<Promotion>
+        {
+            new Promotion {
+                PromoID = "PROMO001",
+                PromoName = "Summer Fitness Special",
+                Description = "Get fit this summer with our exclusive member-only discount",
+                DiscountRate = 20,
+                StartDate = DateTime.Now.AddDays(-10),
+                EndDate = DateTime.Now.AddDays(20)
+            },
+            new Promotion {
+                PromoID = "PROMO002",
+                PromoName = "New Year Resolution",
+                Description = "Start your fitness journey with this special new year offer for members",
+                DiscountRate = 15,
+                StartDate = DateTime.Now.AddDays(5),
+                EndDate = DateTime.Now.AddDays(35)
+            },
+            new Promotion {
+                PromoID = "PROMO003",
+                PromoName = "Loyalty Reward",
+                Description = "Special discount for our loyal gym members",
+                DiscountRate = 25,
+                StartDate = DateTime.Now.AddDays(-30),
+                EndDate = DateTime.Now.AddDays(-1)
+            }
+        };
+    }
+
+    private void HandleSearch()
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery))
+        {
+            filteredPromotions = promotions;
+        }
+        else
+        {
+            filteredPromotions = promotions.Where(p =>
+                p.PromoID.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                p.PromoName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                p.Description.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+        }
+    }
+
+    private void OpenAddPromoModal()
+    {
+        isEditMode = false;
+        currentPromo = new Promotion
+        {
+            PromoID = $"PROMO{(promotions.Count + 1):D3}",
+            StartDate = DateTime.Now,
+            EndDate = DateTime.Now.AddDays(30)
+        };
+        validationErrors.Clear();
+        showPromoModal = true;
+        StateHasChanged();
+    }
+
+    private void EditPromotion(Promotion promo)
+    {
+        isEditMode = true;
+        currentPromo = new Promotion
+        {
+            PromoID = promo.PromoID,
+            PromoName = promo.PromoName,
+            Description = promo.Description,
+            DiscountRate = promo.DiscountRate,
+            StartDate = promo.StartDate,
+            EndDate = promo.EndDate
+        };
+        validationErrors.Clear();
+        showPromoModal = true;
+        StateHasChanged();
+    }
+
+    private void ArchivePromotion(Promotion promo)
+    {
+        // TODO: Add archive confirmation dialog or logic
+        promotions.Remove(promo);
+        HandleSearch();
+        StateHasChanged();
+    }
+
+    private void ValidatePromotion()
+    {
+        validationErrors.Clear();
+
+        if (string.IsNullOrWhiteSpace(currentPromo.PromoName))
+        {
+            validationErrors["PromoName"] = "Promotion name is required";
+        }
+
+        if (string.IsNullOrWhiteSpace(currentPromo.Description))
+        {
+            validationErrors["Description"] = "Description is required";
+        }
+
+        if (currentPromo.DiscountRate <= 0 || currentPromo.DiscountRate > 100)
+        {
+            validationErrors["DiscountRate"] = "Discount rate must be between 1% and 100%";
+        }
+
+        if (currentPromo.StartDate >= currentPromo.EndDate)
+        {
+            validationErrors["EndDate"] = "End date must be after start date";
+        }
+
+        if (currentPromo.StartDate < DateTime.Now.Date && !isEditMode)
+        {
+            validationErrors["StartDate"] = "Start date cannot be in the past";
+        }
+
+        if (validationErrors.Count > 0)
+        {
+            validationErrors["General"] = "Please fill in all required fields correctly";
+        }
+    }
+
+    private void SavePromotion()
+    {
+        ValidatePromotion();
+
+        if (validationErrors.Count > 0)
+        {
+            StateHasChanged();
+            return;
+        }
+
+        if (isEditMode)
+        {
+            var existingPromo = promotions.FirstOrDefault(p => p.PromoID == currentPromo.PromoID);
+            if (existingPromo != null)
+            {
+                existingPromo.PromoName = currentPromo.PromoName;
+                existingPromo.Description = currentPromo.Description;
+                existingPromo.DiscountRate = currentPromo.DiscountRate;
+                existingPromo.StartDate = currentPromo.StartDate;
+                existingPromo.EndDate = currentPromo.EndDate;
+            }
+        }
+        else
+        {
+            promotions.Add(currentPromo);
+        }
+
+        HandleSearch();
+        CloseModal();
+    }
+
+    private void CloseModal()
+    {
+        showPromoModal = false;
+        currentPromo = new Promotion();
+        validationErrors.Clear();
+        StateHasChanged();
+    }
+
+    private string GetStatusClass(Promotion promo)
+    {
+        var today = DateTime.Today;
+        if (today < promo.StartDate.Date)
+            return "status-upcoming";
+        else if (today > promo.EndDate.Date)
+            return "status-expired";
+        else
+            return "status-active";
+    }
+
+    private string GetStatusText(Promotion promo)
+    {
+        var today = DateTime.Today;
+        if (today < promo.StartDate.Date)
+            return "Upcoming";
+        else if (today > promo.EndDate.Date)
+            return "Expired";
+        else
+            return "Active";
+    }
+
+    public class Promotion
+    {
+        public string PromoID { get; set; } = "";
+        public string PromoName { get; set; } = "";
+        public string Description { get; set; } = "";
+        public decimal DiscountRate { get; set; }
+        public DateTime StartDate { get; set; } = DateTime.Now;
+        public DateTime EndDate { get; set; } = DateTime.Now.AddDays(30);
+    }
+}
