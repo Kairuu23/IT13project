@@ -9,6 +9,11 @@ namespace project.Data
             : base(options) { }
 
         public DbSet<Member> Members { get; set; }
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Member>().HasKey(m => m.MemberID);
+        }
+
         public DbSet<Trainer> Trainers { get; set; }
         public DbSet<MemberTrainer> MemberTrainers { get; set; }
         public DbSet<Attendance> Attendances { get; set; }

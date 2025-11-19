@@ -1,8 +1,8 @@
-﻿using Microsoft.Extensions.Logging;
-using Microsoft.EntityFrameworkCore;
-
-
-using project.Data; 
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using project.Data;
+using project.Services;
 
 namespace project
 {
@@ -20,10 +20,16 @@ namespace project
                     fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
                 });
 
-            
-            builder.Services.AddDbContext<AppDbContext>(options =>
-                options.UseSqlServer("Server=KAIRULP\\SQLEXPRESS;Database=GymCRM_DB;User Id=sa;Password=kairu2356;TrustServerCertificate=True;"));
+            // Load appsettings.json
+            builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
 
+            // Use Azure SQL connection from appsettings.json
+            builder.Services.AddDbContext<AppDbContext>(options =>
+                options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+            builder.Services.AddScoped<MemberService>();
+            builder.Services.AddScoped<TrainerService>();
+            builder.Services.AddScoped<PromotionService>();
             builder.Services.AddMauiBlazorWebView();
 
 #if DEBUG

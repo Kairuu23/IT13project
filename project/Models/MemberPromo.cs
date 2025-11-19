@@ -1,10 +1,12 @@
 ﻿using System;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace project.Models
 {
     public class MemberPromo
     {
+        
         public int MemberPromoID { get; set; }
         public int MemberID { get; set; }
 

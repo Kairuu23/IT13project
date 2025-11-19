@@ -3,164 +3,398 @@
 @using project.Models
 @using project.Data
 @inject AppDbContext _db
+@using project.Services
+@inject TrainerService TrainerService
 
-<h3 class="text-center mb-4">Trainers</h3>
 
-<div class="d-flex justify-content-between mb-3">
-    <input class="form-control w-50" placeholder="Search Trainer..." @oninput="FilterTrainers" />
-    <button class="btn btn-primary" @onclick="AddTrainer">Add Trainer</button>
-</div>
+    
+<div class="members-container">
+    <!-- Page Header -->
+    <div class="page-header">
+        <h1 class="page-title">Manage Trainers</h1>
 
-<table class="table table-bordered table-striped">
-    <thead>
-        <tr>
-            <th>First Name</th>
-            <th>Middle Name</th>
-            <th>Last Name</th>
-            <th>Contact Number</th>
-            <th>Specialty</th>
-            <th class="text-center">Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        @if (filteredTrainers != null && filteredTrainers.Any())
-        {
-            @foreach (var trainer in filteredTrainers)
-            {
+        <div class="header-actions">
+            <input type="text"
+                   class="search-bar"
+                   placeholder="Search Trainer..."
+                   @bind="searchQuery"
+                   @bind:event="oninput"
+                   @onkeyup="FilterTrainers" />
+
+            <button class="add-member-btn" @onclick="AddTrainer">+ Add Trainer</button>
+        </div>
+    </div>
+
+    <!-- Trainers Table -->
+    <div class="table-container">
+        <table class="members-table">
+            <thead>
                 <tr>
-                    <td>@trainer.FirstName</td>
-                    <td>@trainer.MiddleName</td>
-                    <td>@trainer.LastName</td>
-                    <td>@trainer.ContactNumber</td>
-                    <td>@trainer.Specialty</td>
-                    <td class="text-center">
-                        <button class="btn btn-warning btn-sm me-2" @onclick="() => EditTrainer(trainer)">Edit</button>
-                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteTrainer(trainer)">Delete</button>
-                    </td>
+                    <th>TRAINER ID</th>
+                    <th>NAME</th>
+                    <th>CONTACT NUMBER</th>
+                    <th>SPECIALTY</th>
+                    <th>ACTIONS</th>
                 </tr>
-            }
-        }
-        else
-        {
-            <tr><td colspan="7" class="text-center">No trainers found.</td></tr>
-        }
-    </tbody>
-</table>
+            </thead>
+            <tbody>
+                @if (filteredTrainers == null || !filteredTrainers.Any())
+                {
+                    <tr>
+                        <td colspan="5" class="no-data">
+                            <div class="no-data-content">
+                                <span class="no-data-icon">🏋️</span>
+                                <p>No trainers found</p>
+                                <p class="no-data-sub">Add your first trainer to get started</p>
+                            </div>
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var trainer in filteredTrainers)
+                    {
+                        <tr>
+                            <td>@trainer.TrainerID</td>
+                            <td>
+                                <div class="member-info">
+                                    <div class="member-avatar">
+                                        @trainer.FirstName.Substring(0, 1).ToUpper()
+                                    </div>
+                                    <span>@trainer.FirstName @trainer.LastName</span>
+                                </div>
+                            </td>
+                            <td>@trainer.ContactNumber</td>
+                            <td>@trainer.Specialty</td>
+                            <td>
+                                <div class="action-buttons">
 
-@if (isModalOpen)
-{
-    <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title">@((isEditMode ? "Edit Trainer" : "Add Trainer"))</h5>
-                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                                    <button class="action-btn edit-btn"
+                                            title="Edit"
+                                            @onclick="() => EditTrainer(trainer)">
+                                        <img src="/icons/edit_blue.svg" class="action-icon" />
+                                    </button>
+
+                                    <button class="action-btn delete-btn"
+                                            title="Delete"
+                                            @onclick="() => DeleteTrainer(trainer)">
+                                        <img src="/icons/delete_red.svg" class="action-icon" />
+                                    </button>
+
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Add / Edit Trainer Modal -->
+    @if (isModalOpen)
+    {
+        <div class="modal-overlay" @onclick="CloseModal">
+            <div class="modal-content" @onclick:stopPropagation="true">
+
+                <div class="modal-header">
+                    <h2>@(isEditMode ? "Edit Trainer" : "Add New Trainer")</h2>
+                    <button class="close-btn" @onclick="CloseModal">×</button>
                 </div>
 
                 <div class="modal-body">
-                    <div class="mb-3">
-                        <label>First Name</label>
-                        <input class="form-control" @bind="currentTrainer.FirstName" />
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="required">First Name</label>
+                            <input class="form-control" @bind="currentTrainer.FirstName" />
+                        </div>
+
+                        <div class="form-group">
+                            <label>Middle Name</label>
+                            <input class="form-control" @bind="currentTrainer.MiddleName" />
+                        </div>
                     </div>
 
-                    <div class="mb-3">
-                        <label>Middle Name</label>
-                        <input class="form-control" @bind="currentTrainer.MiddleName" />
-                    </div>
-
-                    <div class="mb-3">
-                        <label>Last Name</label>
+                    <div class="form-group">
+                        <label class="required">Last Name</label>
                         <input class="form-control" @bind="currentTrainer.LastName" />
                     </div>
 
-                    <div class="mb-3">
-                        <label>Contact Number</label>
+                    <div class="form-group">
+                        <label class="required">Contact Number</label>
                         <input class="form-control" @bind="currentTrainer.ContactNumber" />
                     </div>
 
-                    <!-- ✅ SPECIALTY DROPDOWN ADDED (Only change) -->
-                    <div class="mb-3">
-                        <label>Specialty</label>
+                    <div class="form-group">
+                        <label class="required">Specialty</label>
                         <select class="form-control" @bind="currentTrainer.Specialty">
                             <option value="">-- Select Specialty --</option>
-                            <option value="Strength Training">Strength Training</option>
-                            <option value="Cardio Conditioning">Cardio Conditioning</option>
-                            <option value="Flexibility & Mobility">Flexibility & Mobility</option>
+                            <option>Strength Training</option>
+                            <option>Cardio</option>
+                            <option>Yoga</option>
+                            <option>Pilates</option>
+                            <option>CrossFit</option>
+                            <option>Personal Training</option>
                         </select>
                     </div>
-                    <!-- END CHANGE -->
-
                 </div>
 
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
-                    <button class="btn btn-success" @onclick="SaveTrainer">Save</button>
+                    <button class="btn btn-cancel" @onclick="CloseModal">Cancel</button>
+                    <button class="btn btn-save" @onclick="SaveTrainer">
+                        @(isEditMode ? "Update" : "Add") Trainer
+                    </button>
                 </div>
             </div>
         </div>
-    </div>
-}
+    }
+</div>
+
+
+<style>
+    
+    .members-container {
+        padding: 0;
+        background: #f0f2f5;
+        min-height: 100vh;
+    }
+
+    .page-header {
+        background: white;
+        padding: 20px 30px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-left: -30px;
+        margin-right: -30px;
+        margin-top: -30px;
+        width: calc(100% + 60px);
+        border-bottom: 1px solid #ddd;
+    }
+
+    .page-title {
+        font-size: 30px;
+        font-weight: 700;
+        color: #1E2A38;
+    }
+
+    .header-actions {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+    }
+
+    .search-bar {
+        padding: 10px 15px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        width: 250px;
+    }
+
+    .add-member-btn {
+        background: #5cb85c;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    /* TABLE */
+    .table-container {
+        background: white;
+        margin-left: -30px;
+        margin-right: -30px;
+        width: calc(100% + 60px);
+    }
+
+    .members-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+        .members-table thead {
+            background: #6b8299;
+            color: white;
+        }
+
+        .members-table th,
+        .members-table td {
+            padding: 16px;
+            border-bottom: 1px solid #eee;
+        }
+
+    .member-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .member-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-weight: bold;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: 8px;
+    }
+
+    .action-btn {
+        background: #e3f2fd;
+        border: none;
+        padding: 8px;
+        border-radius: 8px;
+        cursor: pointer;
+    }
+
+    .archive-btn {
+        background: #fff3e0;
+    }
+
+    /* MODAL */
+    .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modal-content {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 500px;
+    }
+
+    .modal-header {
+        padding: 20px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .close-btn {
+        background: transparent;
+        border: none;
+        font-size: 30px;
+    }
+
+    .modal-body {
+        padding: 20px;
+    }
+
+    .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 15px;
+        border-top: 1px solid #eee;
+    }
+
+    .btn-save {
+        background: #5cb85c;
+        color: white;
+        padding: 10px 20px;
+        border-radius: 6px;
+    }
+
+    .btn-cancel {
+        background: #ccc;
+        padding: 10px 20px;
+        border-radius: 6px;
+    }
+</style>
 
 @code {
     private List<Trainer> trainers = new();
     private List<Trainer> filteredTrainers = new();
     private Trainer currentTrainer = new();
+
     private bool isModalOpen = false;
     private bool isEditMode = false;
+    private string searchQuery = "";
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        LoadTrainers();
+        await LoadTrainers();
     }
 
-    private void LoadTrainers()
+    private async Task LoadTrainers()
     {
-        trainers = _db.Trainers.OrderBy(t => t.TrainerID).ToList();
+        trainers = await TrainerService.GetTrainersAsync();
         filteredTrainers = trainers;
-        StateHasChanged();
     }
 
-    private void FilterTrainers(ChangeEventArgs e)
+    private void FilterTrainers()
     {
-        string search = e.Value?.ToString()?.ToLower() ?? "";
-        filteredTrainers = trainers.Where(t =>
-            t.FirstName.ToLower().Contains(search) ||
-            t.LastName.ToLower().Contains(search) ||
-            t.Specialty.ToLower().Contains(search)
-        ).ToList();
+        if (string.IsNullOrWhiteSpace(searchQuery))
+        {
+            filteredTrainers = trainers;
+        }
+        else
+        {
+            filteredTrainers = trainers
+                .Where(t =>
+                    t.FirstName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    t.LastName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    t.Specialty.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
     }
 
     private void AddTrainer()
     {
-        currentTrainer = new Trainer();
-        isEditMode = false;
         isModalOpen = true;
+        isEditMode = false;
+        currentTrainer = new Trainer();
     }
 
     private void EditTrainer(Trainer trainer)
     {
-        currentTrainer = trainer;
         isEditMode = true;
         isModalOpen = true;
+
+        currentTrainer = new Trainer
+        {
+            TrainerID = trainer.TrainerID,
+            FirstName = trainer.FirstName,
+            MiddleName = trainer.MiddleName,
+            LastName = trainer.LastName,
+            ContactNumber = trainer.ContactNumber,
+            Specialty = trainer.Specialty
+        };
     }
 
-    private void SaveTrainer()
+    private async Task SaveTrainer()
     {
-        if (!isEditMode)
+        if (isEditMode)
         {
-            _db.Trainers.Add(currentTrainer);
+            await TrainerService.UpdateTrainerAsync(currentTrainer);
+        }
+        else
+        {
+            await TrainerService.AddTrainerAsync(currentTrainer);
         }
 
-        _db.SaveChanges();
-        LoadTrainers();
+        await LoadTrainers();
         CloseModal();
     }
 
-    private void DeleteTrainer(Trainer trainer)
+    private async Task DeleteTrainer(Trainer trainer)
     {
-        _db.Trainers.Remove(trainer);
-        _db.SaveChanges();
-        LoadTrainers();
+        await TrainerService.DeleteTrainerAsync(trainer);
+        await LoadTrainers();
     }
 
     private void CloseModal()
@@ -168,3 +402,4 @@
         isModalOpen = false;
     }
 }
+
