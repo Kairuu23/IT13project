@@ -9,9 +9,6 @@ namespace project.Models
         public decimal Amount { get; set; }
         public DateTime PaymentDate { get; set; }
         public string PaymentType { get; set; } = string.Empty;
-        public string? WalkinID { get; set; }
-
-        public bool IsArchived { get; set; }
 
         public Member? Member { get; set; }
     }

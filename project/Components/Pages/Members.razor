@@ -1,23 +1,36 @@
-﻿@page "/members"﻿
+﻿@page "/members"
 @layout MainLayout
 @using System.Diagnostics
-@using project.Models 
+@using System.Linq
+@using System.Collections.Generic
+@using System.Threading.Tasks
+@inject IJSRuntime JSRuntime
+@inject AppDbContext Context
+@inject IMemberService MemberService
+@using project.Data
+@using project.Models
 @using project.Services
-@inject MemberService MemberService
-
+@using Microsoft.EntityFrameworkCore
 
 <div class="members-container">
-    <!-- Page Header - No gaps with sidebar and top -->
+    <!-- Loading Indicator -->
+    @if (isLoading)
+    {
+        <div class="loading-overlay">
+            <div class="loading-spinner">Loading members...</div>
+        </div>
+    }
+
+    <!-- Page Header -->
     <div class="page-header">
         <h1 class="page-title">Manage Members</h1>
         <div class="header-actions">
             <input type="text"
                    class="search-bar"
-                   placeholder="Search..."
+                   placeholder="Search members..."
                    @bind="searchQuery"
                    @bind:event="oninput"
                    @onkeyup="HandleSearch" />
-            <button class="add-member-btn" @onclick="OpenAddMemberModal">+ Add New Member</button>
         </div>
     </div>
 
@@ -26,13 +39,15 @@
         <table class="members-table">
             <thead>
                 <tr>
-                    <th>MEMBER ID</th>
                     <th>NAME</th>
                     <th>CONTACT NUMBER</th>
                     <th>EMAIL</th>
                     <th>ADDRESS</th>
                     <th>JOIN DATE</th>
+                    <th>EXPIRATION DATE</th>
                     <th>STATUS</th>
+                    <th>PAYMENT METHOD</th>
+                    <th>TRAINER</th>
                     <th>ACTIONS</th>
                 </tr>
             </thead>
@@ -40,7 +55,7 @@
                 @if (filteredMembers == null || !filteredMembers.Any())
                 {
                     <tr>
-                        <td colspan="8" class="no-data">
+                        <td colspan="10" class="no-data">
                             <div class="no-data-content">
                                 <span class="no-data-icon">👥</span>
                                 <p>No members found</p>
@@ -54,29 +69,63 @@
                     @foreach (var member in filteredMembers)
                     {
                         <tr>
-                            <td>@member.MemberID</td>
                             <td>
                                 <div class="member-info">
-                                    <div class="member-avatar">@member.FirstName.Substring(0, 1).ToUpper()</div>
-                                    <span>@($"{member.FirstName} {member.MiddleInitial} {member.LastName}")</span>
+                                    <div class="member-avatar">@GetInitials(member.FirstName, member.LastName)</div>
+                                    <span>@member.FirstName @member.LastName</span>
                                 </div>
                             </td>
                             <td>@member.ContactNumber</td>
                             <td>@member.Email</td>
-                            <td>@member.Address</td>
+                            <td class="address-cell">@member.Address</td>
                             <td>@member.JoinDate.ToString("MM/dd/yyyy")</td>
                             <td>
-                                <span class="status-badge @(member.Status == "Active" ? "status-active" : "status-inactive")">
-                                     @member.Status
+                                @if (member.ExpirationDate.HasValue)
+                                {
+                                    <span class="@GetExpirationClass(member.ExpirationDate.Value)">
+                                        @member.ExpirationDate.Value.ToString("MM/dd/yyyy")
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">N/A</span>
+                                }
+                            </td>
+                            <td>
+                                <span class="status-badge @GetStatusClass(member)">
+                                    @GetStatusText(member)
                                 </span>
+                            </td>
+                            <td>
+                                @{
+                                    var latestPayment = member.Payments?.OrderByDescending(p => p.PaymentDate).FirstOrDefault();
+                                    var paymentMethod = latestPayment?.PaymentType ?? "N/A";
+                                }
+                                <span class="payment-method-text">@paymentMethod</span>
+                            </td>
+                            <td>
+                                @if (member.TrainerID.HasValue && member.Trainer != null)
+                                {
+                                    <div class="trainer-info">
+                                        <span class="trainer-name">@member.Trainer.FullName</span>
+                                        <span class="trainer-specialty">@member.Trainer.Specialty</span>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span class="no-trainer">No trainer assigned</span>
+                                }
                             </td>
                             <td>
                                 <div class="action-buttons">
                                     <button class="action-btn edit-btn" @onclick="() => EditMember(member)" title="Edit">
                                         <img src="/edit_icon.svg" class="action-icon" alt="Edit" />
                                     </button>
-                                    <button class="action-btn archive-btn" @onclick="() => ArchiveMember(member)" title="Archive">
+                                    <button class="action-btn archive-btn" @onclick="() => ShowArchiveConfirmation(member)" title="Archive">
                                         <img src="/archived_icon.svg" class="action-icon" alt="Archive" />
+                                    </button>
+                                    <button class="action-btn qr-btn" @onclick="() => ShowQrCode(member)" title="QR Code">
+                                        <img src="/QR_icon.svg" class="action-icon" alt="QR Code" />
                                     </button>
                                 </div>
                             </td>
@@ -98,84 +147,236 @@
                 </div>
 
                 <div class="modal-body">
+                    <!-- Validation Error Message -->
+                    @if (showValidationError)
+                    {
+                        <div class="validation-error">
+                            ⚠️ Please fill in all required fields marked with *
+                        </div>
+                    }
 
-            @if (showValidationError)
-            {
-                <div class="validation-error">
-                    ⚠️ Please fill in all required fields.
+                    <!-- Name Fields -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="required">First Name</label>
+                            <input type="text" class="form-control @(HasError("FirstName") ? "error" : "")" @bind="currentMember.FirstName" placeholder="Enter first name" />
+                            @if (HasError("FirstName"))
+                            {
+                                <div class="field-error">First name is required</div>
+                            }
+                        </div>
+                        <div class="form-group">
+                            <label>Middle Initial</label>
+                            <input type="text" class="form-control" @bind="currentMember.MiddleInitial" placeholder="Enter middle initial" maxlength="10" />
+                        </div>
+                        <div class="form-group">
+                            <label class="required">Last Name</label>
+                            <input type="text" class="form-control @(HasError("LastName") ? "error" : "")" @bind="currentMember.LastName" placeholder="Enter last name" />
+                            @if (HasError("LastName"))
+                            {
+                                <div class="field-error">Last name is required</div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <!-- Contact Information -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="required">Contact Number</label>
+                            <input type="tel" class="form-control @(HasError("ContactNumber") ? "error" : "")" @bind="currentMember.ContactNumber" placeholder="Enter contact number" />
+                            @if (HasError("ContactNumber"))
+                            {
+                                <div class="field-error">Contact number is required</div>
+                            }
+                        </div>
+                        <div class="form-group">
+                            <label class="required">Email</label>
+                            <input type="email" class="form-control @(HasError("Email") ? "error" : "")" @bind="currentMember.Email" placeholder="Enter email address" />
+                            @if (HasError("Email"))
+                            {
+                                <div class="field-error">Email is required</div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="required">Address</label>
+                        <textarea class="form-control address-textarea @(HasError("Address") ? "error" : "")" @bind="currentMember.Address" placeholder="Enter full address" rows="3"></textarea>
+                        @if (HasError("Address"))
+                        {
+                            <div class="field-error">Address is required</div>
+                        }
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <!-- Membership Details -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="required">Join Date</label>
+                            <input type="date" class="form-control @(HasError("JoinDate") ? "error" : "")" @bind="currentMember.JoinDate" @bind:after="OnJoinDateChanged" format="yyyy-MM-dd" />
+                            @if (HasError("JoinDate"))
+                            {
+                                <div class="field-error">Join date is required</div>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Membership Type -->
+                    <div class="form-group">
+                        <label class="required">Membership Type</label>
+                        <div class="select-wrapper">
+                            <select class="form-control select-dropdown @(HasError("MembershipTypeID") ? "error" : "")" @bind="currentMember.MembershipTypeID" @bind:after="OnMembershipTypeChanged">
+                                <option value="0">Select membership type</option>
+                                @foreach (var membershipType in availableMembershipTypes)
+                                {
+                                    <option value="@membershipType.MembershipTypeID">@membershipType.TypeName - ₱@membershipType.Price.ToString("N2") (@membershipType.DurationInDays days)</option>
+                                }
+                            </select>
+                            <span class="dropdown-arrow">▼</span>
+                        </div>
+                        @if (HasError("MembershipTypeID"))
+                        {
+                            <div class="field-error">Membership type is required</div>
+                        }
+                        @if (currentMember.MembershipTypeID > 0 && currentMember.JoinDate != DateTime.MinValue && currentMember.ExpirationDate.HasValue)
+                        {
+                            <div class="expiration-preview">
+                                <small style="color: #5cb85c; font-weight: 500;">📅 Expiration: @currentMember.ExpirationDate.Value.ToString("MM/dd/yyyy")</small>
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Trainer Assignment -->
+                    <div class="form-group">    
+                        <label>Assign Trainer (Optional)</label>
+                        <div class="select-wrapper">
+                            <select class="form-control select-dropdown" @bind="currentMember.TrainerID">
+                                <option value="">Select a trainer (optional)</option>
+                                @foreach (var trainer in availableTrainers)
+                                {
+                                    <option value="@trainer.TrainerID">@trainer.FullName - @trainer.Specialty</option>
+                                }
+                            </select>
+                            <span class="dropdown-arrow">▼</span>
+                        </div>
+                    </div>
+
+                    <!-- QR Code Generation Section -->
+                    @if (currentMember.MemberID > 0 && qrCodeImage != null)
+                    {
+                        <div class="divider"></div>
+                        <div class="qr-code-section">
+                            <h4>🎯 Member QR Code</h4>
+                            <div class="qr-code-container">
+                                <div class="qr-code-display">
+                                    <div class="qr-header">
+                                        <strong>@currentMember.FirstName @currentMember.LastName</strong>
+                                        <small>Member ID: @currentMember.MemberID</small>
+                                    </div>
+                                    <div class="qr-image-container">
+                                        <img src="data:image/png;base64,@Convert.ToBase64String(qrCodeImage)"
+                                             alt="QR Code"
+                                             class="qr-image" />
+                                    </div>
+                                    <div class="qr-instructions">
+                                        <small>📱 Scan this code for attendance tracking</small>
+                                    </div>
+                                    <div class="qr-actions">
+                                        <button class="btn btn-outline-primary btn-sm" @onclick="PrintQrCode">
+                                            🖨️ Print
+                                        </button>
+                                        <button class="btn btn-outline-secondary btn-sm" @onclick="DownloadQrCode">
+                                            📥 Download
+                                        </button>
+                                        <button class="btn btn-outline-info btn-sm" @onclick="GenerateNewQrCode">
+                                            🔄 Regenerate
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
                 </div>
-            }
-
-            <!-- Name Fields -->
-            <div class="form-row">
-                <div class="form-group">
-                    <label class="required">First Name</label>
-                    <input type="text" class="form-control @(HasError("FirstName") ? "error" : "")"
-                           @bind="currentMember.FirstName" placeholder="Enter first name" />
-                </div>
-
-                <div class="form-group">
-                    <label>Middle Initial</label>
-                    <input type="text" class="form-control"
-                           @bind="currentMember.MiddleInitial" placeholder="Enter middle initial" />
-                </div>
-
-                <div class="form-group">
-                    <label class="required">Last Name</label>
-                    <input type="text" class="form-control @(HasError("LastName") ? "error" : "")"
-                           @bind="currentMember.LastName" placeholder="Enter last name" />
-                </div>
-            </div>
-
-            <div class="divider"></div>
-
-            <!-- Contact Information -->
-            <div class="form-row">
-                <div class="form-group">
-                    <label class="required">Contact Number</label>
-                    <input type="tel" class="form-control @(HasError("ContactNumber") ? "error" : "")"
-                           @bind="currentMember.ContactNumber" placeholder="Enter contact number" />
-                </div>
-
-                <div class="form-group">
-                    <label class="required">Email</label>
-                    <input type="email" class="form-control @(HasError("Email") ? "error" : "")"
-                           @bind="currentMember.Email" placeholder="Enter email" />
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label class="required">Address</label>
-                <textarea class="form-control @(HasError("Address") ? "error" : "")"
-                          @bind="currentMember.Address" rows="3" placeholder="Enter address"></textarea>
-            </div>
-
-            <div class="divider"></div>
-
-            <!-- Membership Details -->
-            <div class="form-row">
-                <div class="form-group">
-                    <label class="required">Join Date</label>
-                    <input type="date" class="form-control @(HasError("JoinDate") ? "error" : "")"
-                           @bind="currentMember.JoinDate" />
-                </div>
-
-                <div class="form-group">
-                    <label class="required">Status</label>
-                    <select class="form-control" @bind="statusString">
-                        <option value="Active">Active</option>
-                        <option value="Inactive">Inactive</option>
-                    </select>
-                </div>
-            </div>
-
-        </div>
 
                 <div class="modal-footer">
                     <button class="btn btn-cancel" @onclick="CloseModal">Cancel</button>
-                    <button class="btn btn-save"  @onclick="async () => await SaveMember()">
+                    <button class="btn btn-save" @onclick="SaveMember">
                         @(isEditMode ? "Update" : "Add") Member
                     </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Archive Confirmation Modal -->
+    @if (showArchiveConfirmation)
+    {
+        <div class="modal-overlay" @onclick="CloseArchiveConfirmation">
+            <div class="modal-content confirmation-modal" @onclick:stopPropagation="true">
+    <div class="modal-header">
+        <h2>Archive Member</h2>
+        <button class="close-btn" @onclick="CloseArchiveConfirmation">×</button>
+    </div>
+
+    <div class="modal-body">
+        <div class="confirmation-content text-only">
+            <h3>Archive Member</h3>
+            <p>You are about to archive <strong>@selectedMember?.FirstName @selectedMember?.LastName</strong>.</p>
+            <p class="confirmation-warning">This will remove the member from the active list. Continue?</p>
+        </div>
+    </div>
+
+                <div class="modal-footer">
+                    <button class="btn btn-cancel" @onclick="CloseArchiveConfirmation">Cancel</button>
+                    <button class="btn btn-danger" @onclick="ConfirmArchive">Yes, Archive Member</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- QR Code Display Modal -->
+    @if (showQrModal)
+    {
+        <div class="modal-overlay" @onclick="CloseQrModal">
+            <div class="modal-content qr-modal" @onclick:stopPropagation="true">
+                <div class="modal-header">
+                    <h2>Member QR Code</h2>
+                    <button class="close-btn" @onclick="CloseQrModal">×</button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="qr-code-display-full">
+                        <div class="qr-header-full">
+                            <h4>@selectedMember?.FirstName @selectedMember?.LastName</h4>
+                            <p class="text-muted">Member ID: @selectedMember?.MemberID</p>
+                        </div>
+                        <div class="qr-image-container-full">
+                            @if (selectedMemberQrImage != null)
+                            {
+                                <img src="data:image/png;base64,@Convert.ToBase64String(selectedMemberQrImage)"
+                                     alt="QR Code"
+                                     class="qr-image-full" />
+                            }
+                            else
+                            {
+                                <div class="qr-loading">Generating QR Code...</div>
+                            }
+                        </div>
+                        <div class="qr-instructions-full">
+                            <p>📱 Show this code at the gym for quick check-in</p>
+                        </div>
+                        <div class="qr-actions-full">
+                            <button class="btn btn-primary" @onclick="PrintQrCode">
+                                🖨️ Print QR Code
+                            </button>
+                            <button class="btn btn-secondary" @onclick="DownloadQrCode">
+                                📥 Download QR Code
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -183,534 +384,829 @@
 </div>
 
 <style>
-    .members-container {
-        padding: 0;
-        background: #f0f2f5;
-        min-height: 100vh;
-    }
+     .members-container {
+         padding: 30px;
+         background: #ffffff;
+         min-height: 100vh;
+     }
 
-    /* Page Header - NO GAPS with sidebar and top */
-    .page-header {
-        background: white;
-        padding: 20px 30px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin: 0;
-        border-bottom: 1px solid #e0e0e0;
-        /* Remove all gaps */
-        margin-left: -30px;
-        margin-right: -30px;
-        margin-top: -30px;
-        width: calc(100% + 60px);
-    }
+     .loading-overlay {
+         position: fixed;
+         top: 0;
+         left: 0;
+         width: 100%;
+         height: 100%;
+         background: rgba(255, 255, 255, 0.8);
+         display: flex;
+         justify-content: center;
+         align-items: center;
+         z-index: 9999;
+     }
 
-    .page-title {
-        font-size: 24px;
-        font-weight: 600;
-        margin: 0;
-        color: #333;
-    }
+     .loading-spinner {
+         padding: 20px;
+         background: white;
+         border-radius: 8px;
+         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+         font-weight: 600;
+     }
 
-    .header-actions {
-        display: flex;
-        gap: 15px;
-        align-items: center;
-    }
+     .page-header {
+         background: white;
+         padding: 25px 30px;
+         display: flex;
+         justify-content: space-between;
+         align-items: center;
+         margin: 0 0 30px 0;
+         border-radius: 10px;
+         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+     }
 
-    .search-bar {
-        padding: 10px 15px;
-        border: 1px solid #ddd;
-        border-radius: 6px;
-        width: 250px;
-        font-size: 14px;
-        transition: all 0.3s;
-    }
+     .page-title {
+         font-size: 24px;
+         font-weight: 600;
+         margin: 0;
+         color: #333;
+     }
 
-        .search-bar:focus {
-            outline: none;
-            border-color: #5cb85c;
-            box-shadow: 0 0 0 3px rgba(92, 184, 92, 0.1);
-        }
+     .header-actions {
+         display: flex;
+         gap: 15px;
+         align-items: center;
+     }
 
-    .add-member-btn {
-        background: #5cb85c;
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 6px;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s;
-    }
+     .search-bar {
+         padding: 10px 15px;
+         border: 1px solid #ddd;
+         border-radius: 6px;
+         width: 250px;
+         font-size: 14px;
+         transition: all 0.3s;
+     }
 
-        .add-member-btn:hover {
-            background: #4cae4c;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(92, 184, 92, 0.3);
-        }
+         .search-bar:focus {
+             outline: none;
+             border-color: #5cb85c;
+             box-shadow: 0 0 0 3px rgba(92, 184, 92, 0.1);
+         }
 
-    /* Table Container - NO GAPS with header and sidebar */
-    .table-container {
-        margin: 0;
-        background: white;
-        border-radius: 0;
-        box-shadow: none;
-        overflow: hidden;
-        /* Remove all gaps - extend to full width */
-        margin-left: -30px;
-        margin-right: -30px;
-        width: calc(100% + 60px);
-    }
+     .add-member-btn {
+         background: #5cb85c;
+         color: white;
+         border: none;
+         padding: 10px 20px;
+         border-radius: 6px;
+         font-size: 14px;
+         font-weight: 600;
+         cursor: pointer;
+         transition: all 0.3s;
+     }
 
-    .members-table {
-        width: 100%;
-        border-collapse: collapse;
-    }
+         .add-member-btn:hover {
+             background: #4cae4c;
+             transform: translateY(-1px);
+             box-shadow: 0 4px 12px rgba(92, 184, 92, 0.3);
+         }
 
-        .members-table thead {
-            background: #6b8299;
-            color: white;
-        }
+     .table-container {
+         margin: 0;
+         background: white;
+         border-radius: 10px;
+         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+         overflow-x: auto;
+         overflow-y: auto;
+         max-height: calc(100vh - 250px);
+     }
 
-        .members-table th {
-            padding: 16px;
-            text-align: left;
+     .payment-method-text {
+         color: #333;
+         font-size: 14px;
+     }
+
+     .members-table {
+         width: 100%;
+         border-collapse: collapse;
+     }
+
+         .members-table thead {
+             background: #234060;
+             color: white;
+             position: sticky;
+             top: 0;
+             z-index: 10;
+         }
+
+         .members-table th {
+             padding: 12px 16px;
+             text-align: left;
+             font-weight: 600;
+             font-size: 14px;
+             text-transform: uppercase;
+             letter-spacing: 0.5px;
+             border-bottom: 2px solid #1a3450;
+         }
+
+         .members-table td {
+             padding: 12px 16px;
+             border-bottom: 1px solid #f0f0f0;
+             color: #333;
+             vertical-align: middle;
+         }
+
+         .members-table tbody tr {
+             transition: background 0.2s;
+         }
+
+             .members-table tbody tr:hover {
+                 background: #f8f9fa;
+             }
+
+     .member-info {
+         display: flex;
+         align-items: center;
+         gap: 10px;
+     }
+
+        .member-info span {
             font-weight: 600;
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            border-bottom: 2px solid #5a7088;
+            color: #1f2b3d;
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
         }
 
-        .members-table td {
-            padding: 16px;
-            border-bottom: 1px solid #f0f0f0;
-            color: #333;
-        }
+     .member-avatar {
+         width: 36px;
+         height: 36px;
+         border-radius: 50%;
+         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+         color: white;
+         display: flex;
+         align-items: center;
+         justify-content: center;
+         font-weight: bold;
+         font-size: 14px;
+         flex-shrink: 0;
+     }
 
-        .members-table tbody tr {
-            transition: background 0.2s;
-        }
+     .address-cell {
+         max-width: 250px;
+         word-wrap: break-word;
+     }
 
-            .members-table tbody tr:hover {
-                background: #f8f9fa;
-            }
+     .status-badge {
+         padding: 0;
+         border-radius: 0;
+         font-size: 14px;
+         font-weight: 600;
+         background: transparent;
+     }
 
-    .member-info {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }
+     .status-active {
+         background: transparent;
+         color: #333;
+     }
 
-    .member-avatar {
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: bold;
-        font-size: 14px;
-    }
+     .status-inactive {
+         background: transparent;
+         color: #333;
+     }
 
-    .address-cell {
-        max-width: 200px;
-        word-wrap: break-word;
-    }
+     .status-suspended {
+         background: transparent;
+         color: #333;
+     }
 
-    .status-badge {
-        padding: 6px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-    }
+     .trainer-info {
+         display: flex;
+         flex-direction: column;
+         gap: 2px;
+     }
 
-    .status-active {
-        background: #d4edda;
-        color: #155724;
-    }
+     .trainer-name {
+         font-weight: 600;
+         color: #333;
+         font-size: 13px;
+     }
 
-    .status-inactive {
-        background: #f8d7da;
-        color: #721c24;
-    }
+     .trainer-specialty {
+         font-size: 11px;
+         color: #666;
+         background: #f8f9fa;
+         padding: 2px 6px;
+         border-radius: 10px;
+         display: inline-block;
+     }
 
-    .action-buttons {
-        display: flex;
-        gap: 8px;
-    }
+     .no-trainer {
+         color: #999;
+         font-style: italic;
+         font-size: 13px;
+     }
+
+     .action-buttons {
+         display: flex;
+         gap: 8px;
+     }
 
     .action-btn {
-        background: transparent;
-        border: none;
+        background: transparent !important;
+        border: none !important;
         cursor: pointer;
-        padding: 8px;
-        border-radius: 6px;
-        transition: all 0.2s;
+        padding: 0;
+        transition: transform 0.15s ease;
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 36px;
-        height: 36px;
+        box-shadow: none !important;
     }
 
-    .action-icon {
-        width: 18px;
-        height: 18px;
-        transition: all 0.2s;
-    }
-
-    .edit-btn {
-        background: #e3f2fd;
-        color: #3498db;
-    }
-
-        .edit-btn:hover {
-            background: #3498db;
+        .action-btn:hover {
             transform: scale(1.1);
+            background: transparent !important;
         }
 
-            .edit-btn:hover .action-icon {
-                filter: brightness(0) invert(1);
-            }
+        .action-btn:focus {
+            background: transparent !important;
+            outline: none;
+        }
 
-    .archive-btn {
-        background: #fff3e0;
+        .action-btn:active {
+            background: transparent !important;
+        }
+
+    .action-icon {
+        width: 20px;
+        height: 20px;
+        transition: filter 0.15s ease;
+    }
+
+        .action-btn:hover .action-icon {
+            filter: brightness(1.15);
+        }
+
+    .edit-btn,
+    .archive-btn,
+    .qr-btn {
+        background: transparent !important;
+    }
+
+     .no-data {
+         text-align: center;
+         padding: 60px 20px;
+     }
+
+     .no-data-content {
+         color: #999;
+     }
+
+     .no-data-icon {
+         font-size: 64px;
+         display: block;
+         margin-bottom: 16px;
+     }
+
+     .no-data-content p {
+         margin: 8px 0;
+         font-size: 16px;
+     }
+
+     .no-data-sub {
+         font-size: 14px;
+         color: #bbb;
+     }
+
+     .modal-overlay {
+         position: fixed;
+         top: 0;
+         left: 0;
+         right: 0;
+         bottom: 0;
+         background: rgba(0, 0, 0, 0.5);
+         display: flex;
+         justify-content: center;
+         align-items: center;
+         z-index: 1000;
+         padding: 20px;
+         box-sizing: border-box;
+     }
+
+     .modal-content {
+         background: white;
+         border-radius: 12px;
+         width: 90%;
+         max-width: 600px;
+         max-height: 90vh;
+         overflow-y: auto;
+         box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+         display: flex;
+         flex-direction: column;
+     }
+
+     .modal-header {
+         padding: 20px 24px;
+         border-bottom: 1px solid #eee;
+         display: flex;
+         justify-content: space-between;
+         align-items: center;
+         flex-shrink: 0;
+     }
+
+         .modal-header h2 {
+             margin: 0;
+             font-size: 22px;
+             color: #333;
+         }
+
+     .close-btn {
+         background: transparent;
+         border: none;
+         font-size: 32px;
+         color: #999;
+         cursor: pointer;
+         line-height: 1;
+         padding: 0;
+         width: 32px;
+         height: 32px;
+         transition: color 0.2s;
+     }
+
+         .close-btn:hover {
+             color: #333;
+         }
+
+     .modal-body {
+         padding: 24px;
+         overflow-y: auto;
+         flex: 1;
+         max-height: calc(90vh - 140px);
+     }
+
+     .validation-error {
+         background: #ffeaa7;
+         border: 1px solid #fdcb6e;
+         border-radius: 8px;
+         padding: 12px 16px;
+         margin-bottom: 20px;
+         color: #e17055;
+         font-weight: 600;
+         font-size: 14px;
+         display: flex;
+         align-items: center;
+         gap: 8px;
+         flex-shrink: 0;
+     }
+
+     .form-group {
+         margin-bottom: 20px;
+     }
+
+         .form-group label {
+             display: block;
+             margin-bottom: 8px;
+             font-weight: 600;
+             color: #333;
+             font-size: 14px;
+         }
+
+     .form-control {
+         width: 100%;
+         padding: 12px;
+         border: 1px solid #ddd;
+         border-radius: 8px;
+         font-size: 15px;
+         transition: all 0.3s;
+         box-sizing: border-box;
+     }
+
+         .form-control:focus {
+             outline: none;
+             border-color: #5cb85c;
+             box-shadow: 0 0 0 3px rgba(92, 184, 92, 0.1);
+         }
+
+         .form-control.error {
+             border-color: #e74c3c;
+             box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+         }
+
+     .field-error {
+         color: #e74c3c;
+         font-size: 12px;
+         margin-top: 5px;
+         font-weight: 500;
+         display: flex;
+         align-items: center;
+         gap: 4px;
+     }
+
+         .field-error::before {
+             content: "⚠";
+         }
+
+     /* Expiration Date Styling */
+     .expiration-expired {
+         color: #e74c3c;
+         font-weight: 600;
+     }
+
+     .expiration-warning {
+         color: #f39c12;
+         font-weight: 600;
+     }
+
+     .expiration-approaching {
+         color: #f1c40f;
+         font-weight: 500;
+     }
+
+    .expiration-valid {
         color: #f39c12;
     }
 
-        .archive-btn:hover {
-            background: #f39c12;
-            transform: scale(1.1);
-        }
+     .expiration-preview {
+         margin-top: 8px;
+         padding: 6px 10px;
+         background: #f0f9ff;
+         border-radius: 6px;
+         border-left: 3px solid #5cb85c;
+     }
 
-            .archive-btn:hover .action-icon {
-                filter: brightness(0) invert(1);
-            }
+     /* Status Badge Styling */
+     .status-badge {
+         display: inline-block;
+         padding: 4px 12px;
+         border-radius: 12px;
+         font-size: 12px;
+         font-weight: 600;
+         text-transform: uppercase;
+         letter-spacing: 0.5px;
+     }
 
-    .no-data {
-        text-align: center;
-        padding: 60px 20px;
-    }
+     .status-active {
+         background: #d4edda;
+         color: #155724;
+     }
 
-    .no-data-content {
-        color: #999;
-    }
+     .status-expired {
+         background: #f8d7da;
+         color: #721c24;
+     }
 
-    .no-data-icon {
-        font-size: 64px;
-        display: block;
-        margin-bottom: 16px;
-    }
+     .status-inactive {
+         background: #e2e3e5;
+         color: #383d41;
+     }
 
-    .no-data-content p {
-        margin: 8px 0;
-        font-size: 16px;
-    }
+     .status-suspended {
+         background: #fff3cd;
+         color: #856404;
+     }
 
-    .no-data-sub {
-        font-size: 14px;
-        color: #bbb;
-    }
+     .address-textarea {
+         resize: vertical;
+         min-height: 80px;
+         font-family: inherit;
+     }
 
-    /* Modal Styles - FIXED FOR SCROLLING */
-    .modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 1000;
-        padding: 20px;
-        box-sizing: border-box;
-    }
+     .select-wrapper {
+         position: relative;
+         display: inline-block;
+         width: 100%;
+     }
 
-    .modal-content {
-        background: white;
-        border-radius: 12px;
-        width: 90%;
-        max-width: 600px;
-        max-height: 90vh; /* Prevent modal from exceeding viewport height */
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-        display: flex;
-        flex-direction: column;
-        overflow: hidden; /* Prevent content from overflowing */
-    }
+     .select-dropdown {
+         appearance: none;
+         -webkit-appearance: none;
+         -moz-appearance: none;
+         padding-right: 40px;
+         background: white;
+         cursor: pointer;
+         width: 100%;
+         padding: 12px;
+         border: 1px solid #ddd;
+         border-radius: 8px;
+         font-size: 15px;
+         transition: all 0.3s;
+         box-sizing: border-box;
+     }
 
-    .modal-header {
-        padding: 20px 24px;
-        border-bottom: 1px solid #eee;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-shrink: 0; /* Prevent header from shrinking */
-    }
+     .dropdown-arrow {
+         position: absolute;
+         right: 15px;
+         top: 50%;
+         transform: translateY(-50%);
+         pointer-events: none;
+         color: #666;
+         font-size: 12px;
+         transition: all 0.2s;
+     }
 
-        .modal-header h2 {
-            margin: 0;
-            font-size: 22px;
-            color: #333;
-        }
+     .select-dropdown:focus + .dropdown-arrow {
+         color: #5cb85c;
+         transform: translateY(-50%) rotate(180deg);
+     }
 
-    .close-btn {
-        background: transparent;
-        border: none;
-        font-size: 32px;
-        color: #999;
-        cursor: pointer;
-        line-height: 1;
-        padding: 0;
-        width: 32px;
-        height: 32px;
-        transition: color 0.2s;
-    }
+     .modal-footer {
+         padding: 16px 24px;
+         border-top: 1px solid #eee;
+         display: flex;
+         justify-content: flex-end;
+         gap: 12px;
+         flex-shrink: 0;
+     }
 
-        .close-btn:hover {
-            color: #333;
-        }
+     .btn {
+         padding: 10px 20px;
+         border: none;
+         border-radius: 8px;
+         font-size: 15px;
+         font-weight: 600;
+         cursor: pointer;
+         transition: all 0.3s;
+     }
 
-    .modal-body {
-        padding: 24px;
-        overflow-y: auto; /* Enable scrolling for modal body */
-        flex: 1; /* Take remaining space */
-        max-height: calc(90vh - 140px); /* Account for header and footer */
-    }
+     .btn-cancel {
+         background: #f5f5f5;
+         color: #666;
+     }
 
-    /* Validation Styles */
-    .validation-error {
-        background: #ffeaa7;
-        border: 1px solid #fdcb6e;
-        border-radius: 8px;
-        padding: 12px 16px;
-        margin-bottom: 20px;
-        color: #e17055;
-        font-weight: 600;
-        font-size: 14px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-shrink: 0; /* Prevent error message from affecting layout */
-    }
+         .btn-cancel:hover {
+             background: #e0e0e0;
+         }
 
-    .form-group {
-        margin-bottom: 20px;
-    }
+     .btn-save {
+         background: #5cb85c;
+         color: white;
+     }
 
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #333;
-            font-size: 14px;
-        }
+         .btn-save:hover {
+             background: #4cae4c;
+             transform: translateY(-1px);
+             box-shadow: 0 4px 12px rgba(92, 184, 92, 0.3);
+         }
 
-    .form-control {
-        width: 100%;
-        padding: 12px;
-        border: 1px solid #ddd;
-        border-radius: 8px;
-        font-size: 15px;
-        transition: all 0.3s;
-        box-sizing: border-box; /* Include padding in width calculation */
-    }
+     .form-row {
+         display: flex;
+         gap: 15px;
+     }
 
-        .form-control:focus {
-            outline: none;
-            border-color: #5cb85c;
-            box-shadow: 0 0 0 3px rgba(92, 184, 92, 0.1);
-        }
+         .form-row .form-group {
+             flex: 1;
+         }
 
-        /* Error state for form controls */
-        .form-control.error {
-            border-color: #e74c3c;
-            box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
-        }
+     .required::after {
+         content: " *";
+         color: #e74c3c;
+     }
 
-            .form-control.error:focus {
-                border-color: #e74c3c;
-                box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.2);
-            }
+     .divider {
+         height: 1px;
+         background-color: #eee;
+         margin: 20px 0;
+         border: none;
+     }
 
-    .field-error {
-        color: #e74c3c;
-        font-size: 12px;
-        margin-top: 5px;
-        font-weight: 500;
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
+     .confirmation-modal {
+         max-width: 500px;
+     }
 
-        .field-error::before {
-            content: "⚠";
-            font-size: 10px;
-        }
+     .confirmation-content {
+         text-align: center;
+         padding: 10px 0;
+     }
 
-    .address-textarea {
-        resize: vertical;
-        min-height: 80px;
-        font-family: inherit;
-    }
+     .confirmation-icon {
+         font-size: 64px;
+         margin-bottom: 20px;
+     }
 
-    /* Enhanced Dropdown Styles */
-    .select-wrapper {
-        position: relative;
-        display: inline-block;
-        width: 100%;
-    }
+     .confirmation-content h3 {
+         margin: 0 0 15px 0;
+         color: #333;
+         font-size: 24px;
+     }
 
-    .select-dropdown {
-        appearance: none;
-        -webkit-appearance: none;
-        -moz-appearance: none;
-        padding-right: 40px;
-        background: white;
-        cursor: pointer;
-        width: 100%;
-        padding: 12px;
-        border: 1px solid #ddd;
-        border-radius: 8px;
-        font-size: 15px;
-        transition: all 0.3s;
-        box-sizing: border-box;
-    }
+     .confirmation-content p {
+         margin: 10px 0;
+         color: #666;
+         line-height: 1.5;
+     }
 
-    .dropdown-arrow {
-        position: absolute;
-        right: 15px;
-        top: 50%;
-        transform: translateY(-50%);
-        pointer-events: none;
-        color: #666;
-        font-size: 12px;
-        transition: all 0.2s;
-    }
+     .confirmation-warning {
+         color: #e74c3c !important;
+         font-weight: 600;
+         background: #ffeaa7;
+         padding: 10px;
+         border-radius: 8px;
+         margin-top: 15px !important;
+     }
 
-    .select-dropdown:focus + .dropdown-arrow {
-        color: #5cb85c;
-        transform: translateY(-50%) rotate(180deg);
-    }
+     .btn-danger {
+         background: #e74c3c;
+         color: white;
+     }
 
-    .select-dropdown:hover {
-        border-color: #5cb85c;
-    }
+         .btn-danger:hover {
+             background: #c0392b;
+             transform: translateY(-1px);
+             box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+         }
 
-    .select-dropdown:focus {
-        outline: none;
-        border-color: #5cb85c;
-        box-shadow: 0 0 0 3px rgba(92, 184, 92, 0.1);
-    }
+     /* QR Code Styles */
+     .qr-code-section {
+         margin-top: 20px;
+     }
 
-    .modal-footer {
-        padding: 16px 24px;
-        border-top: 1px solid #eee;
-        display: flex;
-        justify-content: flex-end;
-        gap: 12px;
-        flex-shrink: 0; /* Prevent footer from shrinking */
-    }
+         .qr-code-section h4 {
+             margin-bottom: 15px;
+             color: #333;
+             font-size: 18px;
+         }
 
-    .btn {
-        padding: 10px 20px;
-        border: none;
-        border-radius: 8px;
-        font-size: 15px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s;
-    }
+     .qr-code-container {
+         background: #f8f9fa;
+         border-radius: 8px;
+         padding: 20px;
+         border: 1px solid #e9ecef;
+     }
 
-    .btn-cancel {
-        background: #f5f5f5;
-        color: #666;
-    }
+     .qr-code-display {
+         text-align: center;
+     }
 
-        .btn-cancel:hover {
-            background: #e0e0e0;
-        }
+     .qr-header {
+         margin-bottom: 15px;
+     }
 
-    .btn-save {
-        background: #5cb85c;
-        color: white;
-    }
+         .qr-header strong {
+             display: block;
+             font-size: 16px;
+             color: #333;
+         }
 
-        .btn-save:hover {
-            background: #4cae4c;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(92, 184, 92, 0.3);
-        }
+         .qr-header small {
+             color: #666;
+             font-size: 12px;
+         }
 
-    /* Additional CSS for the form layout */
-    .form-row {
-        display: flex;
-        gap: 15px;
-    }
+     .qr-image-container {
+         margin: 15px 0;
+         text-align: center;
+     }
 
-        .form-row .form-group {
-            flex: 1;
-        }
+     .qr-image {
+         width: 200px;
+         height: 200px;
+         border: 1px solid #ddd;
+         border-radius: 8px;
+         padding: 10px;
+         background: white;
+     }
 
-    .required::after {
-        content: " *";
-        color: #e74c3c;
-    }
+     .qr-instructions {
+         margin: 10px 0;
+         color: #666;
+     }
 
-    .divider {
-        height: 1px;
-        background-color: #eee;
-        margin: 20px 0;
-        border: none;
-    }
+     .qr-actions {
+         display: flex;
+         gap: 8px;
+         justify-content: center;
+         flex-wrap: wrap;
+     }
 
-    /* Responsive design for smaller screens */
-    @@media (max-height: 700px) {
-        .modal-content {
-            max-height: 95vh;
-        }
+     .btn-sm {
+         padding: 6px 12px;
+         font-size: 12px;
+     }
 
-        .modal-body {
-            max-height: calc(95vh - 140px);
-        }
-    }
+     .btn-outline-primary {
+         background: transparent;
+         border: 1px solid #3498db;
+         color: #3498db;
+     }
 
-    @@media (max-width: 768px) {
-        .modal-overlay {
-            padding: 10px;
-        }
+         .btn-outline-primary:hover {
+             background: #3498db;
+             color: white;
+         }
 
-        .modal-content {
-            width: 95%;
-            max-height: 95vh;
-        }
+     .btn-outline-secondary {
+         background: transparent;
+         border: 1px solid #95a5a6;
+         color: #95a5a6;
+     }
 
-        .form-row {
-            flex-direction: column;
-            gap: 0;
-        }
+         .btn-outline-secondary:hover {
+             background: #95a5a6;
+             color: white;
+         }
 
-        .action-buttons {
-            flex-direction: column;
-            gap: 4px;
-        }
+     .btn-outline-info {
+         background: transparent;
+         border: 1px solid #17a2b8;
+         color: #17a2b8;
+     }
 
-        .action-btn {
-            width: 32px;
-            height: 32px;
-        }
+         .btn-outline-info:hover {
+             background: #17a2b8;
+             color: white;
+         }
 
-        .action-icon {
-            width: 16px;
-            height: 16px;
-        }
-    }
+     /* QR Modal Styles */
+     .qr-modal {
+         max-width: 500px;
+     }
+
+     .qr-code-display-full {
+         text-align: center;
+         padding: 20px;
+     }
+
+     .qr-header-full h4 {
+         margin: 0 0 5px 0;
+         color: #333;
+     }
+
+     .qr-image-container-full {
+         margin: 20px 0;
+         text-align: center;
+     }
+
+     .qr-image-full {
+         width: 250px;
+         height: 250px;
+         border: 2px solid #3498db;
+         border-radius: 12px;
+         padding: 15px;
+         background: white;
+     }
+
+     .qr-loading {
+         padding: 40px;
+         color: #666;
+         font-style: italic;
+     }
+
+     .qr-instructions-full {
+         margin: 15px 0;
+         color: #666;
+     }
+
+     .qr-actions-full {
+         display: flex;
+         gap: 10px;
+         justify-content: center;
+         flex-wrap: wrap;
+     }
+
+     @@media (max-width: 768px) {
+         .action-buttons {
+             flex-direction: column;
+             gap: 4px;
+         }
+
+         .action-btn {
+             width: 32px;
+             height: 32px;
+         }
+
+         .action-icon {
+             width: 16px;
+             height: 16px;
+         }
+
+         .header-actions {
+             flex-direction: column;
+             gap: 10px;
+             align-items: flex-start;
+         }
+
+         .search-bar {
+             width: 100%;
+         }
+
+         .confirmation-modal {
+             max-width: 95%;
+         }
+
+         .confirmation-icon {
+             font-size: 48px;
+         }
+
+         .confirmation-content h3 {
+             font-size: 20px;
+         }
+
+         .qr-modal {
+             max-width: 95%;
+         }
+
+         .qr-actions-full {
+             flex-direction: column;
+         }
+     }
 </style>
 
 @code {
@@ -718,19 +1214,201 @@
     private bool showModal = false;
     private bool isEditMode = false;
     private bool showValidationError = false;
-
-    // Status will now be "Active" or "Inactive"
-    private string statusString = "Active";
-
-    private Member currentMember = new Member();
+    private bool isLoading = false;
+    private Member currentMember = new Member
+    {
+        MembershipTypeID = 0,
+        Status = "Active"
+    };
     private List<Member> members = new List<Member>();
     private List<Member> filteredMembers = new List<Member>();
     private List<string> validationErrors = new List<string>();
+    private bool showArchiveConfirmation = false;
+    private Member? selectedMember;
+    private List<Trainer> availableTrainers = new List<Trainer>();
+    private List<project.Models.MembershipType> availableMembershipTypes = new List<project.Models.MembershipType>();
+
+    // QR Code Variables
+    private byte[]? qrCodeImage;
+    private byte[]? selectedMemberQrImage;
+    private bool showQrModal = false;
 
     protected override async Task OnInitializedAsync()
     {
-        members = await MemberService.GetMembersAsync();
-        filteredMembers = members;
+        await LoadMembersFromDatabase();
+        await LoadTrainersFromDatabase();
+        await LoadMembershipTypesFromDatabase();
+    }
+
+    private async Task LoadTrainersFromDatabase(int? includeTrainerId = null)
+    {
+        try
+        {
+            var assignedTrainerIds = await Context.Members
+                .Where(m => m.TrainerID.HasValue && !m.IsArchived)
+                .Select(m => m.TrainerID!.Value)
+                .ToListAsync();
+
+            var assignedTrainerIdsFromWalkins = await Context.WalkIns
+                .Where(w => w.TrainerID.HasValue && !w.IsArchived)
+                .Select(w => w.TrainerID!.Value)
+                .ToListAsync();
+
+            assignedTrainerIds.AddRange(assignedTrainerIdsFromWalkins);
+
+            if (includeTrainerId.HasValue)
+            {
+                assignedTrainerIds = assignedTrainerIds
+                    .Where(id => id != includeTrainerId.Value)
+                    .ToList();
+            }
+
+            availableTrainers = await Context.Trainers
+                .Where(t => !assignedTrainerIds.Contains(t.TrainerID))
+                .ToListAsync();
+
+            availableTrainers = availableTrainers
+                .OrderBy(t => t.FullName)
+                .ToList();
+
+            if (includeTrainerId.HasValue && !availableTrainers.Any(t => t.TrainerID == includeTrainerId.Value))
+            {
+                var currentTrainer = await Context.Trainers.FirstOrDefaultAsync(t => t.TrainerID == includeTrainerId.Value);
+                if (currentTrainer != null)
+                {
+                    availableTrainers.Add(currentTrainer);
+                    availableTrainers = availableTrainers
+                        .OrderBy(t => t.FullName)
+                        .ToList();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error loading trainers: {ex.Message}");
+        }
+    }
+
+    private async Task LoadMembershipTypesFromDatabase()
+    {
+        try
+        {
+            // Load all membership types (not just Basic and Premium, exclude archived)
+            availableMembershipTypes = await Context.MembershipTypes
+                .Where(mt => mt.IsArchived == false)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error loading membership types: {ex.Message}");
+        }
+    }
+
+    private async Task LoadMembersFromDatabase()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            // First, check and update expired memberships
+            await CheckAndUpdateExpiredMemberships();
+            
+            // Load members with related data (exclude archived)
+            members = await Context.Members
+                .Where(m => m.IsArchived == false)
+                .Include(m => m.Trainer)
+                .Include(m => m.MembershipType)
+                .Include(m => m.Payments)
+                .ToListAsync();
+            
+            // Calculate expiration dates for members that don't have one
+            bool hasChanges = false;
+            foreach (var member in members)
+            {
+                if (!member.ExpirationDate.HasValue && member.MembershipType != null)
+                {
+                    member.ExpirationDate = member.JoinDate.AddDays(member.MembershipType.DurationInDays);
+                    hasChanges = true;
+                }
+            }
+            
+            if (hasChanges)
+            {
+                await Context.SaveChangesAsync();
+                // Reload to get updated data
+                members = await Context.Members
+                    .Include(m => m.Trainer)
+                    .Include(m => m.MembershipType)
+                    .Include(m => m.Payments)
+                    .ToListAsync();
+            }
+            
+            filteredMembers = members;
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error loading members: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private DateTime? CalculateExpirationDate(DateTime joinDate, int membershipTypeID)
+    {
+        var membershipType = availableMembershipTypes.FirstOrDefault(mt => mt.MembershipTypeID == membershipTypeID);
+        if (membershipType != null)
+        {
+            return joinDate.AddDays(membershipType.DurationInDays);
+        }
+        return null;
+    }
+
+    private string GetExpirationClass(DateTime expirationDate)
+    {
+        var daysUntilExpiration = (expirationDate.Date - DateTime.Today).Days;
+        
+        if (daysUntilExpiration < 0)
+            return "expiration-expired"; // Already expired
+        else if (daysUntilExpiration <= 7)
+            return "expiration-warning"; // Expiring soon (within 7 days)
+        else if (daysUntilExpiration <= 30)
+            return "expiration-approaching"; // Approaching expiration (within 30 days)
+        else
+            return "expiration-valid"; // Valid membership
+    }
+
+    private string GetStatusClass(Member member)
+    {
+        // Check if membership is expired based on expiration date
+        if (member.ExpirationDate.HasValue && member.ExpirationDate.Value.Date < DateTime.Today)
+        {
+            return "status-inactive";
+        }
+
+        return member.Status.ToLower() switch
+        {
+            "active" => "status-active",
+            "inactive" => "status-inactive",
+            "suspended" => "status-suspended",
+            _ => "status-active"
+        };
+    }
+
+    private string GetStatusText(Member member)
+    {
+        if (member.ExpirationDate.HasValue && member.ExpirationDate.Value.Date < DateTime.Today)
+            return "Inactive";
+        else
+            return member.Status;
+    }
+
+    private string GetInitials(string firstName, string lastName)
+    {
+        return $"{firstName?.FirstOrDefault()}{lastName?.FirstOrDefault()}".ToUpper();
     }
 
     private void HandleSearch()
@@ -743,36 +1421,37 @@
         {
             filteredMembers = members.Where(m =>
                 m.FirstName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
-                m.MiddleInitial.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
                 m.LastName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
                 m.Email.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
                 m.ContactNumber.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
-                m.MemberID.ToString().Contains(searchQuery) ||
-                m.Address.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                m.Address.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                (m.Trainer != null && m.Trainer.FullName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
             ).ToList();
         }
     }
 
-    private void OpenAddMemberModal()
+    private async Task OpenAddMemberModal()
     {
         isEditMode = false;
-
         currentMember = new Member
         {
             JoinDate = DateTime.Now,
-            Status = "Active"
+            Status = "Active",
+            MembershipTypeID = 0, // Start with no selection
+            TrainerID = null,
+            ExpirationDate = null
         };
-
-        statusString = "Active";
         showValidationError = false;
         validationErrors.Clear();
+        qrCodeImage = null;
         showModal = true;
+        await LoadTrainersFromDatabase(null);
+        StateHasChanged();
     }
 
-    private void EditMember(Member member)
+    private async Task EditMember(Member member)
     {
         isEditMode = true;
-
         currentMember = new Member
         {
             MemberID = member.MemberID,
@@ -783,19 +1462,77 @@
             Email = member.Email,
             Address = member.Address,
             JoinDate = member.JoinDate,
-            Status = member.Status
+            ExpirationDate = member.ExpirationDate,
+            Status = member.Status,
+            MembershipTypeID = member.MembershipTypeID,
+            TrainerID = member.TrainerID
         };
-
-        statusString = member.Status;
         showValidationError = false;
         validationErrors.Clear();
+
+        await GenerateQrCodeForMember();
+        await LoadTrainersFromDatabase(currentMember.TrainerID);
         showModal = true;
+        StateHasChanged();
     }
 
-    private void ArchiveMember(Member member)
+    private async void ShowQrCode(Member member)
     {
-        members.Remove(member);
-        HandleSearch();
+        selectedMember = member;
+        var qrImage = await MemberService.GenerateMemberQrCodeAsync(member.MemberID);
+        if (qrImage != null)
+        {
+            selectedMemberQrImage = qrImage;
+            showQrModal = true;
+            StateHasChanged();
+        }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Failed to generate QR code.");
+        }
+    }
+
+    private void CloseQrModal()
+    {
+        showQrModal = false;
+        selectedMember = null;
+        selectedMemberQrImage = null;
+        StateHasChanged();
+    }
+
+    private void ShowArchiveConfirmation(Member member)
+    {
+        selectedMember = member;
+        showArchiveConfirmation = true;
+        StateHasChanged();
+    }
+
+    private void CloseArchiveConfirmation()
+    {
+        showArchiveConfirmation = false;
+        selectedMember = null;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmArchive()
+    {
+        if (selectedMember != null)
+        {
+            try
+            {
+                selectedMember.IsArchived = true;
+                Context.Members.Update(selectedMember);
+                await Context.SaveChangesAsync();
+                await LoadMembersFromDatabase();
+                await LoadTrainersFromDatabase();
+                CloseArchiveConfirmation();
+                await JSRuntime.InvokeVoidAsync("alert", "Member archived successfully!");
+            }
+            catch (Exception ex)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"Error archiving member: {ex.Message}");
+            }
+        }
     }
 
     private bool ValidateForm()
@@ -820,6 +1557,9 @@
         if (currentMember.JoinDate == DateTime.MinValue)
             validationErrors.Add("JoinDate");
 
+        if (currentMember.MembershipTypeID <= 0)
+            validationErrors.Add("MembershipTypeID");
+
         showValidationError = validationErrors.Any();
         return !showValidationError;
     }
@@ -830,35 +1570,231 @@
     }
 
     private async Task SaveMember()
-{
-    if (!ValidateForm())
-        return;
-
-    // Set Active / Inactive
-    currentMember.Status = statusString;
-
-    if (isEditMode)
     {
-        await MemberService.UpdateMemberAsync(currentMember);
+        if (!ValidateForm())
+        {
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            if (isEditMode)
+            {
+                var existingMember = await Context.Members.FindAsync(currentMember.MemberID);
+                if (existingMember != null)
+                {
+                    existingMember.FirstName = currentMember.FirstName;
+                    existingMember.MiddleInitial = currentMember.MiddleInitial;
+                    existingMember.LastName = currentMember.LastName;
+                    existingMember.ContactNumber = currentMember.ContactNumber;
+                    existingMember.Email = currentMember.Email;
+                    existingMember.Address = currentMember.Address;
+                    existingMember.JoinDate = currentMember.JoinDate;
+                    existingMember.MembershipTypeID = currentMember.MembershipTypeID;
+                    existingMember.TrainerID = currentMember.TrainerID;
+                    
+                    // Calculate expiration date based on join date and membership type
+                    existingMember.ExpirationDate = CalculateExpirationDate(existingMember.JoinDate, existingMember.MembershipTypeID);
+                    
+                    UpdateMemberStatus(existingMember);
+
+                    await Context.SaveChangesAsync();
+                    await JSRuntime.InvokeVoidAsync("alert", "Member updated successfully!");
+                }
+            }
+            else
+            {
+                var newMember = new Member
+                {
+                    FirstName = currentMember.FirstName,
+                    MiddleInitial = currentMember.MiddleInitial,
+                    LastName = currentMember.LastName,
+                    ContactNumber = currentMember.ContactNumber,
+                    Email = currentMember.Email,
+                    Address = currentMember.Address,
+                    JoinDate = currentMember.JoinDate,
+                    MembershipTypeID = currentMember.MembershipTypeID,
+                    TrainerID = currentMember.TrainerID
+                };
+                
+                // Calculate expiration date based on join date and membership type
+                newMember.ExpirationDate = CalculateExpirationDate(newMember.JoinDate, newMember.MembershipTypeID);
+                UpdateMemberStatus(newMember);
+
+                Context.Members.Add(newMember);
+                await Context.SaveChangesAsync();
+
+                currentMember.MemberID = newMember.MemberID;
+                await GenerateQrCodeForMember();
+                await JSRuntime.InvokeVoidAsync("alert", "Member added successfully! QR code generated.");
+            }
+
+            await LoadMembersFromDatabase();
+            await LoadTrainersFromDatabase();
+
+            if (isEditMode)
+            {
+                CloseModal();
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error saving member: {ex.Message}");
+        }
     }
-    else
+
+    private async Task GenerateQrCodeForMember()
     {
-        await MemberService.AddMemberAsync(currentMember);
+        if (currentMember.MemberID > 0)
+        {
+            qrCodeImage = await MemberService.GenerateMemberQrCodeAsync(currentMember.MemberID);
+            StateHasChanged();
+        }
     }
 
-    // Reload from SQL after saving
-    members = await MemberService.GetMembersAsync();
-    filteredMembers = members;
+    // ADD THIS MISSING METHOD
+    private async Task GenerateNewQrCode()
+    {
+        try
+        {
+            if (currentMember.MemberID > 0)
+            {
+                qrCodeImage = await MemberService.GenerateMemberQrCodeAsync(currentMember.MemberID);
+                StateHasChanged();
+                await JSRuntime.InvokeVoidAsync("alert", "New QR code generated!");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error generating QR code: {ex.Message}");
+        }
+    }
 
-    CloseModal();
-}
+    private async Task PrintQrCode()
+    {
+        try
+        {
+            var imageData = selectedMemberQrImage ?? qrCodeImage;
+            if (imageData != null)
+            {
+                var success = await JSRuntime.InvokeAsync<bool>("printQRCode", Convert.ToBase64String(imageData));
+                if (!success)
+                {
+                    await JSRuntime.InvokeVoidAsync("alert", "Printing failed. Please try again.");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error printing QR code: {ex.Message}");
+        }
+    }
+
+    private async Task DownloadQrCode()
+    {
+        try
+        {
+            var imageData = selectedMemberQrImage ?? qrCodeImage;
+            if (imageData != null)
+            {
+                var fileName = $"MemberQR_{selectedMember?.MemberID ?? currentMember.MemberID}_{DateTime.Now:yyyyMMddHHmmss}.png";
+                var success = await JSRuntime.InvokeAsync<bool>("downloadFile", Convert.ToBase64String(imageData), fileName, "image/png");
+
+                if (success)
+                {
+                    await JSRuntime.InvokeVoidAsync("alert", "QR code downloaded successfully!");
+                }
+                else
+                {
+                    await JSRuntime.InvokeVoidAsync("alert", "Failed to download QR code.");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error downloading QR code: {ex.Message}");
+        }
+    }
 
     private void CloseModal()
     {
         showModal = false;
-        currentMember = new Member();
-        statusString = "Active";
+        currentMember = new Member
+        {
+            MembershipTypeID = 1,
+            TrainerID = null,
+            Status = "Active"
+        };
         showValidationError = false;
         validationErrors.Clear();
+        qrCodeImage = null;
+        StateHasChanged();
+    }
+
+    private void UpdateMemberStatus(Member member)
+    {
+        if (member.ExpirationDate.HasValue && member.ExpirationDate.Value.Date < DateTime.Today)
+        {
+            member.Status = "Inactive";
+        }
+        else
+        {
+            member.Status = "Active";
+        }
+    }
+
+    // Check and update expired memberships
+    private async Task CheckAndUpdateExpiredMemberships()
+    {
+        try
+        {
+            var today = DateTime.Today;
+            var expiredMembers = await Context.Members
+                .Where(m => m.ExpirationDate.HasValue 
+                    && m.ExpirationDate.Value.Date < today 
+                    && m.Status != "Inactive")
+                .ToListAsync();
+
+            if (expiredMembers.Any())
+            {
+                foreach (var member in expiredMembers)
+                {
+                    member.Status = "Inactive";
+                }
+                await Context.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error updating expired memberships: {ex.Message}");
+        }
+    }
+
+    // Handle membership type change - recalculate expiration date
+    private void OnMembershipTypeChanged()
+    {
+        if (currentMember.MembershipTypeID > 0 && currentMember.JoinDate != DateTime.MinValue)
+        {
+            currentMember.ExpirationDate = CalculateExpirationDate(currentMember.JoinDate, currentMember.MembershipTypeID);
+            UpdateMemberStatus(currentMember);
+        }
+        else if (currentMember.MembershipTypeID == 0)
+        {
+            currentMember.ExpirationDate = null;
+            UpdateMemberStatus(currentMember);
+        }
+        StateHasChanged();
+    }
+
+    // Handle join date change - recalculate expiration date
+    private void OnJoinDateChanged()
+    {
+        if (currentMember.MembershipTypeID > 0 && currentMember.JoinDate != DateTime.MinValue)
+        {
+            currentMember.ExpirationDate = CalculateExpirationDate(currentMember.JoinDate, currentMember.MembershipTypeID);
+            UpdateMemberStatus(currentMember);
+        }
+        StateHasChanged();
     }
 }

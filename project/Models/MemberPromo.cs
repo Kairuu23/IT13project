@@ -6,17 +6,19 @@ namespace project.Models
 {
     public class MemberPromo
     {
-        
-        public int MemberPromoID { get; set; }
+        [Key]
+        public int Id { get; set; }
+
+        [Required]
         public int MemberID { get; set; }
 
-        [ForeignKey("Promotion")]  
-        public int PromoID { get; set; }
+        [Required]
+        public int PromotionID { get; set; }  // ← ADD THIS
 
-        public DateTime DateJoined { get; set; }
+        public DateTime? DateUsed { get; set; }
 
-       
-        public Member? Member { get; set; }
-        public Promotion? Promotion { get; set; }
+        // Navigation properties
+        public virtual Member? Member { get; set; }
+        public virtual Promotion? Promotion { get; set; }
     }
 }

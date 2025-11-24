@@ -1,4 +1,5 @@
-﻿namespace project.Models
+﻿
+namespace project.Models
 {
     public class MembershipType
     {
@@ -6,5 +7,6 @@
         public string TypeName { get; set; } = string.Empty;
         public decimal Price { get; set; }
         public int DurationInDays { get; set; }
+        public bool IsArchived { get; set; } = false;
     }
 }

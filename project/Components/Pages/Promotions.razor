@@ -1,8 +1,5 @@
 ﻿@page "/promotions"
 @layout MainLayout
-@using project.Services
-@using project.Models
-@inject PromotionService PromotionService
 @using System.Diagnostics
 
 <div class="members-container">
@@ -190,25 +187,21 @@
 
 <style>
     .members-container {
-        padding: 0;
-        background: #f0f2f5;
+        padding: 30px;
+        background: #ffffff;
         min-height: 100vh;
     }
 
-    /* Page Header - NO GAPS with sidebar and top */
+    /* Page Header */
     .page-header {
         background: white;
-        padding: 20px 30px;
+        padding: 25px 30px;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin: 0;
-        border-bottom: 1px solid #e0e0e0;
-        /* Remove all gaps */
-        margin-left: -30px;
-        margin-right: -30px;
-        margin-top: -30px;
-        width: calc(100% + 60px);
+        margin: 0 0 30px 0;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
 
     .page-title {
@@ -257,17 +250,13 @@
             box-shadow: 0 4px 12px rgba(92, 184, 92, 0.3);
         }
 
-    /* Table Container - NO GAPS with header and sidebar */
+    /* Table Container */
     .table-container {
         margin: 0;
         background: white;
-        border-radius: 0;
-        box-shadow: none;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         overflow: hidden;
-        /* Remove all gaps - extend to full width */
-        margin-left: -30px;
-        margin-right: -30px;
-        width: calc(100% + 60px);
     }
 
     .members-table {
@@ -276,7 +265,7 @@
     }
 
         .members-table thead {
-            background: #6b8299;
+            background: #234060;
             color: white;
         }
 
@@ -287,7 +276,7 @@
             font-size: 14px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            border-bottom: 2px solid #5a7088;
+            border-bottom: 2px solid #1a3450;
         }
 
         .members-table td {
@@ -674,21 +663,46 @@
     private string searchQuery = "";
     private bool showPromoModal = false;
     private bool isEditMode = false;
-
     private Promotion currentPromo = new Promotion();
-    private List<Promotion> promotions = new();
-    private List<Promotion> filteredPromotions = new();
-    private Dictionary<string, string> validationErrors = new();
+    private List<Promotion> promotions = new List<Promotion>();
+    private List<Promotion> filteredPromotions = new List<Promotion>();
+    private Dictionary<string, string> validationErrors = new Dictionary<string, string>();
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        await LoadPromotions();
+        LoadSampleData();
+        filteredPromotions = promotions;
     }
 
-    private async Task LoadPromotions()
+    private void LoadSampleData()
     {
-        promotions = await PromotionService.GetPromotionsAsync();
-        filteredPromotions = promotions;
+        promotions = new List<Promotion>
+        {
+            new Promotion {
+                PromoID = "PROMO001",
+                PromoName = "Summer Fitness Special",
+                Description = "Get fit this summer with our exclusive member-only discount",
+                DiscountRate = 20,
+                StartDate = DateTime.Now.AddDays(-10),
+                EndDate = DateTime.Now.AddDays(20)
+            },
+            new Promotion {
+                PromoID = "PROMO002",
+                PromoName = "New Year Resolution",
+                Description = "Start your fitness journey with this special new year offer for members",
+                DiscountRate = 15,
+                StartDate = DateTime.Now.AddDays(5),
+                EndDate = DateTime.Now.AddDays(35)
+            },
+            new Promotion {
+                PromoID = "PROMO003",
+                PromoName = "Loyalty Reward",
+                Description = "Special discount for our loyal gym members",
+                DiscountRate = 25,
+                StartDate = DateTime.Now.AddDays(-30),
+                EndDate = DateTime.Now.AddDays(-1)
+            }
+        };
     }
 
     private void HandleSearch()
@@ -699,33 +713,31 @@
         }
         else
         {
-            filteredPromotions = promotions
-                .Where(p =>
-                    p.PromoID.ToString().Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
-                    p.PromoName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
-                    p.Description.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            filteredPromotions = promotions.Where(p =>
+                p.PromoID.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                p.PromoName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                p.Description.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+            ).ToList();
         }
     }
 
     private void OpenAddPromoModal()
     {
         isEditMode = false;
-
         currentPromo = new Promotion
         {
-            StartDate = DateTime.Today,
-            EndDate = DateTime.Today.AddDays(30)
+            PromoID = $"PROMO{(promotions.Count + 1):D3}",
+            StartDate = DateTime.Now,
+            EndDate = DateTime.Now.AddDays(30)
         };
-
         validationErrors.Clear();
         showPromoModal = true;
+        StateHasChanged();
     }
 
     private void EditPromotion(Promotion promo)
     {
         isEditMode = true;
-
         currentPromo = new Promotion
         {
             PromoID = promo.PromoID,
@@ -735,39 +747,17 @@
             StartDate = promo.StartDate,
             EndDate = promo.EndDate
         };
-
         validationErrors.Clear();
         showPromoModal = true;
-    }
-
-    private async Task SavePromotion()
-    {
-        ValidatePromotion();
-
-        if (validationErrors.Count > 0)
-            return;
-
-        if (isEditMode)
-            await PromotionService.UpdatePromotionAsync(currentPromo);
-        else
-            await PromotionService.AddPromotionAsync(currentPromo);
-
-        await LoadPromotions();
-        CloseModal();
-    }
-
-    private async Task ArchivePromotion(Promotion promo)
-    {
-        await PromotionService.DeletePromotionAsync(promo.PromoID);
-        await LoadPromotions();
         StateHasChanged();
     }
 
-    private void CloseModal()
+    private void ArchivePromotion(Promotion promo)
     {
-        showPromoModal = false;
-        currentPromo = new Promotion();
-        validationErrors.Clear();
+        // TODO: Add archive confirmation dialog or logic
+        promotions.Remove(promo);
+        HandleSearch();
+        StateHasChanged();
     }
 
     private void ValidatePromotion()
@@ -775,41 +765,104 @@
         validationErrors.Clear();
 
         if (string.IsNullOrWhiteSpace(currentPromo.PromoName))
+        {
             validationErrors["PromoName"] = "Promotion name is required";
+        }
 
         if (string.IsNullOrWhiteSpace(currentPromo.Description))
+        {
             validationErrors["Description"] = "Description is required";
+        }
 
         if (currentPromo.DiscountRate <= 0 || currentPromo.DiscountRate > 100)
-            validationErrors["DiscountRate"] = "Discount must be 1%–100%";
+        {
+            validationErrors["DiscountRate"] = "Discount rate must be between 1% and 100%";
+        }
 
         if (currentPromo.StartDate >= currentPromo.EndDate)
+        {
             validationErrors["EndDate"] = "End date must be after start date";
+        }
+
+        if (currentPromo.StartDate < DateTime.Now.Date && !isEditMode)
+        {
+            validationErrors["StartDate"] = "Start date cannot be in the past";
+        }
+
+        if (validationErrors.Count > 0)
+        {
+            validationErrors["General"] = "Please fill in all required fields correctly";
+        }
+    }
+
+    private void SavePromotion()
+    {
+        ValidatePromotion();
+
+        if (validationErrors.Count > 0)
+        {
+            StateHasChanged();
+            return;
+        }
+
+        if (isEditMode)
+        {
+            var existingPromo = promotions.FirstOrDefault(p => p.PromoID == currentPromo.PromoID);
+            if (existingPromo != null)
+            {
+                existingPromo.PromoName = currentPromo.PromoName;
+                existingPromo.Description = currentPromo.Description;
+                existingPromo.DiscountRate = currentPromo.DiscountRate;
+                existingPromo.StartDate = currentPromo.StartDate;
+                existingPromo.EndDate = currentPromo.EndDate;
+            }
+        }
+        else
+        {
+            promotions.Add(currentPromo);
+        }
+
+        HandleSearch();
+        CloseModal();
+    }
+
+    private void CloseModal()
+    {
+        showPromoModal = false;
+        currentPromo = new Promotion();
+        validationErrors.Clear();
+        StateHasChanged();
     }
 
     private string GetStatusClass(Promotion promo)
     {
         var today = DateTime.Today;
-
         if (today < promo.StartDate.Date)
             return "status-upcoming";
-
-        if (today > promo.EndDate.Date)
+        else if (today > promo.EndDate.Date)
             return "status-expired";
-
-        return "status-active";
+        else
+            return "status-active";
     }
 
     private string GetStatusText(Promotion promo)
     {
         var today = DateTime.Today;
-
         if (today < promo.StartDate.Date)
             return "Upcoming";
-
-        if (today > promo.EndDate.Date)
+        else if (today > promo.EndDate.Date)
             return "Expired";
+        else
+            return "Active";
+    }
 
-        return "Active";
+    public class Promotion
+    {
+        public string PromoID { get; set; } = "";
+        public string PromoName { get; set; } = "";
+        public string Description { get; set; } = "";
+        public decimal DiscountRate { get; set; }
+        public DateTime StartDate { get; set; } = DateTime.Now;
+        public DateTime EndDate { get; set; } = DateTime.Now.AddDays(30);
     }
 }
